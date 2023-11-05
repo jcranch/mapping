@@ -34,7 +34,7 @@ library
       src
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
   build-depends:
-      base
+      base >=4.18 && <4.20
     , cond ==0.4.*
     , containers >=0.6.6 && <0.7
     , formatting >=7.0.0 && <7.3
@@ -51,7 +51,7 @@ executable view
       examples
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base
+      base >=4.18 && <4.20
     , cond ==0.4.*
     , containers >=0.6.6 && <0.7
     , formatting >=7.0.0 && <7.3
@@ -73,7 +73,7 @@ test-suite mapping
       test
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base
+      base >=4.18 && <4.20
     , cond ==0.4.*
     , containers >=0.6.6 && <0.7
     , formatting >=7.0.0 && <7.3
