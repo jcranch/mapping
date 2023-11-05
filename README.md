@@ -1,4 +1,4 @@
-# Mapping
+# Mappings
 
 ## What's it do?
 
