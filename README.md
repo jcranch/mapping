@@ -13,14 +13,14 @@ This package does two jobs:
 
 * Three less trivial implementations are provided:
 
-** [Decision diagrams](src/Data/Mapping/Decision.hs), with nodes which
-   may themselves be an arbitrary `Mapping` (there is some code for
-   viewing these in the `examples` directory);
+    * [Decision diagrams](src/Data/Mapping/Decision.hs), with nodes
+       which may themselves be an arbitrary `Mapping` (there is some
+       code for viewing these in the `examples` directory);
 
-** [Piecewise constant maps](src/Data/Mapping/Piecewise.hs) on an
-   ordered domain `k`;
+    * [Piecewise constant maps](src/Data/Mapping/Piecewise.hs) on an
+       ordered domain `k`;
 
-** [Maps equipped with a default value](src/Data/Mapping/MapWithDefault.hs).
+    * [Maps equipped with a default value](src/Data/Mapping/MapWithDefault.hs).
 
 
 ## Why did I bother?
