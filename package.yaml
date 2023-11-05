@@ -1,0 +1,69 @@
+name:                mapping
+version:             0.0.1.0
+license:             BSD-3-Clause
+author:              "James Cranch"
+maintainer:          "j.d.cranch@sheffield.ac.uk"
+copyright:           "2023 James Cranch"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+synopsis:            Classes representing a function k -> v
+category:            Data structures
+
+description:         Please read README.md
+
+dependencies:
+- base
+- cond                   >= 0.4       &&  < 0.5
+- containers             >= 0.6.6     &&  < 0.7
+- formatting             >= 7.0.0     &&  < 7.3
+- partialord             >= 0.0.2     &&  < 0.1
+
+language:            GHC2021
+
+library:
+  source-dirs: src
+  ghc-options:
+  - -Wall
+  - -Wcompat
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wredundant-constraints
+  - -O2
+
+executables:
+  view:
+    main:                View.hs
+    source-dirs:         examples
+    ghc-options:
+    - -Wall
+    - -Wcompat
+    - -Wincomplete-record-updates
+    - -Wincomplete-uni-patterns
+    - -Wredundant-constraints
+    - -O2
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - mapping
+
+tests:
+  mapping:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -Wall
+    - -Wcompat
+    - -Wincomplete-record-updates
+    - -Wincomplete-uni-patterns
+    - -Wredundant-constraints
+    - -O2
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - mapping
+    - hspec        >= 2.11     && < 2.12

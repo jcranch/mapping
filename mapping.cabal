@@ -1,0 +1,83 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.36.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           mapping
+version:        0.0.1.0
+synopsis:       Classes representing a function k -> v
+description:    Please read README.md
+category:       Data structures
+author:         James Cranch
+maintainer:     j.d.cranch@sheffield.ac.uk
+copyright:      2023 James Cranch
+license:        BSD-3-Clause
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+library
+  exposed-modules:
+      Data.Bijection
+      Data.Mapping
+      Data.Mapping.Decision
+      Data.Mapping.MapWithDefault
+      Data.Mapping.Piecewise
+      Data.Mapping.Util
+  other-modules:
+      Paths_mapping
+  autogen-modules:
+      Paths_mapping
+  hs-source-dirs:
+      src
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2
+  build-depends:
+      base
+    , cond ==0.4.*
+    , containers >=0.6.6 && <0.7
+    , formatting >=7.0.0 && <7.3
+    , partialord >=0.0.2 && <0.1
+  default-language: GHC2021
+
+executable view
+  main-is: View.hs
+  other-modules:
+      Paths_mapping
+  autogen-modules:
+      Paths_mapping
+  hs-source-dirs:
+      examples
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base
+    , cond ==0.4.*
+    , containers >=0.6.6 && <0.7
+    , formatting >=7.0.0 && <7.3
+    , mapping
+    , partialord >=0.0.2 && <0.1
+  default-language: GHC2021
+
+test-suite mapping
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Data.Mapping.DecisionSpec
+      Data.Mapping.MapWithDefaultSpec
+      Data.Mapping.PiecewiseSpec
+      Paths_mapping
+  autogen-modules:
+      Paths_mapping
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -O2 -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      base
+    , cond ==0.4.*
+    , containers >=0.6.6 && <0.7
+    , formatting >=7.0.0 && <7.3
+    , hspec ==2.11.*
+    , mapping
+    , partialord >=0.0.2 && <0.1
+  default-language: GHC2021

@@ -1,0 +1,13 @@
+*~
+todo.*
+dist-newstyle
+.stack
+.stack-work
+_build
+*.dyn_*
+*.o
+*.hi
+*.o-boot
+*.hi-boot
+*.tar.*
+*.lock
