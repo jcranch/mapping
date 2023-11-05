@@ -1,5 +1,6 @@
 name:                mapping
 version:             0.0.1.0
+github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"
 maintainer:          "j.d.cranch@sheffield.ac.uk"
@@ -12,7 +13,7 @@ extra-source-files:
 synopsis:            Classes representing a function k -> v
 category:            Data structures
 
-description:         Please read README.md
+description:         Please read README.md on github
 
 dependencies:
 - base                   >= 4.18      &&  < 4.20
@@ -31,7 +32,6 @@ library:
   - -Wincomplete-record-updates
   - -Wincomplete-uni-patterns
   - -Wredundant-constraints
-  - -O2
 
 executables:
   view:
@@ -43,7 +43,6 @@ executables:
     - -Wincomplete-record-updates
     - -Wincomplete-uni-patterns
     - -Wredundant-constraints
-    - -O2
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
@@ -60,7 +59,6 @@ tests:
     - -Wincomplete-record-updates
     - -Wincomplete-uni-patterns
     - -Wredundant-constraints
-    - -O2
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
