@@ -1,4 +1,5 @@
 {-# LANGUAGE
+    CPP,
     DeriveFunctor,
     DerivingVia,
     FlexibleInstances,
@@ -9,6 +10,10 @@
 
 module Data.Mapping where
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
+#else
+import Control.Applicative (liftA2)
+#endif
 import Prelude hiding (not, (&&), (||))
 import Data.Algebra.Boolean (Boolean(..))
 import Data.Function (on)

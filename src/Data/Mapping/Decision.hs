@@ -1,4 +1,5 @@
 {-# LANGUAGE
+      CPP,
       MultiParamTypeClasses,
       OverloadedStrings,
       RankNTypes,
@@ -39,6 +40,10 @@
 --  * Optimisation by reordering
 module Data.Mapping.Decision where
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
+#else
+import Control.Applicative (liftA2)
+#endif
 import Data.Algebra.Boolean (Boolean(..))
 import Data.Bijection (Bij)
 import qualified Data.Bijection as B

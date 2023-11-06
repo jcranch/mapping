@@ -1,5 +1,11 @@
+{-# LANGUAGE CPP #-}
+
 module Data.Bijection where
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
+#else
+import Control.Applicative (liftA2)
+#endif
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
 import qualified Data.IntMap.Merge.Strict as IM

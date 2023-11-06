@@ -1,5 +1,11 @@
+{-# LANGUAGE CPP #-}
+
 module Data.Mapping.MapWithDefault where
 
+#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
+#else
+import Control.Applicative (liftA2)
+#endif
 import Data.List (foldl', groupBy)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
