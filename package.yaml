@@ -1,5 +1,5 @@
 name:                mappings
-version:             0.0.2.0
+version:             0.1.0.0
 github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"

@@ -14,29 +14,23 @@
 -- case where m is `BoolMapping` and v is `Bool`. Our algorithms are mostly
 -- straightforward generalisations of those considered there.
 --
+
 -- TODO
---  * Decisions go upwards in order currently, I believe; should they go
---    downwards, to coincide with lexicographical orderings on maps and hence
---    maybe make smaller decision diagrams?
+--  * Format types of functions better
+--  * Decisions go upwards in order currently; should they go
+--    downwards, to coincide with lexicographical orderings on maps
+--    and hence maybe make smaller decision diagrams?
 --    We can use Down if necessary to amend this
 --  * Increase test coverage
 --  * Examples:
 --     - finding optima
 --     - finding random elements
 --    (as examples of the more general functions, already coded, I hope)
---  * Separate out various stuff into other modules?
---  * Reformat types
---  * Refactor by changing order of arguments of addLeaf and addNode and simplifying
---    Might even want a more general Node, for even greater simplicity
---    Could use a pair instead of node.
+--  * Separate out "Base" stuff into other modules?
 --  * Documentation
---  * Tidy out any commented-out code
 --
 -- MAYBE TO DO
---  * Implement the two monadic algorithms?
---  * Comment on a more efficient mapping algorithm
 --  * Composition algorithm?
---      composite :: (a -> Decision k m v w) -> Decision k m a v -> Decision k m a w ???
 --  * Optimisation by reordering
 module Data.Mapping.Decision where
 
@@ -88,11 +82,17 @@ data Base k m a v = Base {
   nodes :: Seq (Node k m a)
 }
 
+baseLength :: Base k m a v -> Int
+baseLength (Base l m) = Q.length l + Q.length m
+
 -- | A decision diagram with a starting point
 data Decision k m a v = Decision {
   base :: !(Base k m a v),
   start :: !Int
 }
+
+decisionLength :: Decision k m a v -> Int
+decisionLength = baseLength . base
 
 -- | A value for every node of a base
 data BaseMap v = BaseMap {
@@ -147,22 +147,42 @@ decisionRecurse p q (Decision b s) = bindex (baseRecurse p q b) s
 
 
 -- | A general counting function
---
--- Not sure if this is the best way of laying this out
-genCounts :: (Ord a, Ord n, Mapping k m) => (v -> n) -> (a -> a -> n -> n) -> (m n -> n) -> a -> a -> Decision k m a v -> n
-genCounts onValue promote combine x0 x1 = let
-  p = uncurry . promote
-  f x = (x1, onValue x)
-  g y m = (y, combine $ mmap (p y) m)
-  in p x0 . decisionRecurse f g
+generalCounts :: (Ord a, Ord n, Mapping k m)
+              => (a -> a -> Int)
+                 -- ^ In the list of decisions, how far apart are these?
+              -> a
+                 -- ^ The first possible decision
+              -> a
+                 -- ^ The last possible decision
+              -> (v -> n)
+                 -- ^ The count of a value
+              -> (m n -> n)
+                 -- ^ How to combine counts at a node
+              -> Decision k m a v
+                 -- ^ The input decision diagram
+              -> n
+                 -- ^ The count
+generalCounts d x0 x1 onVal combine = let
+  d' Nothing Nothing = 2 + d x0 x1
+  d' Nothing (Just y) = 1 + d x0 y
+  d' (Just x) Nothing = 1 + d x x1
+  d' (Just x) (Just y) = d x y
+  p x (y, a) = let
+    q 1 v = v
+    q n v = q (n-1) . combine $ cst v
+    in q (d' x y) a
+  f x = (Nothing, onVal x)
+  g a m = let
+    b = Just a
+    in (b, combine $ mmap (p b) m)
+  in p Nothing . decisionRecurse f g
 
--- | How many values are True in a binary decision diagram?
-numberTrue :: (Integral a) => a -> a -> Decision Bool OnBool a Bool -> Integer
+-- | How many values are True in a binary decision diagram with integer leaves?
+numberTrue :: Int -> Int -> Decision Bool OnBool Int Bool -> Integer
 numberTrue x0 x1 = let
   f a = if a then 1 else 0
-  g y x n = n * (2 ^ (x-y-1))
-  h (OnBool u v) = u + v
-  in genCounts f g h (x0-1) (x1+1)
+  g (OnBool u v) = u + v
+  in generalCounts subtract x0 x1 f g
 
 
 -- | Build a sequence from key-value pairs; we take on trust that all

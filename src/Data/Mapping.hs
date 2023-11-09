@@ -71,12 +71,27 @@ class Neighbourly m where
   neighbours :: Ord v => m v -> Set (v, v)
 
 
--- | A wrapper for representing algebraic structures on a Mapping
+-- | A wrapper for representing pointwise algebraic structures on a Mapping
 --
 -- Eventually would like to use this only for "deriving via"
-newtype AlgebraWrapper k m b = AlgebraWrapper { algebraUnwrap :: m b }
+newtype AlgebraWrapper k m a = AlgebraWrapper { algebraUnwrap :: m a }
 
-instance (Mapping k m, Ord b, Boolean b) => Boolean (AlgebraWrapper k m b) where
+instance (Mapping k m, Ord a, Semigroup a) => Semigroup (AlgebraWrapper k m a) where
+  (<>) = (AlgebraWrapper .) . merge (<>) `on` algebraUnwrap
+
+instance (Mapping k m, Ord a, Monoid a) => Monoid (AlgebraWrapper k m a) where
+  mempty = AlgebraWrapper $ cst mempty
+
+instance (Mapping k m, Ord a, Num a) => Num (AlgebraWrapper k m a) where
+  (+) =  (AlgebraWrapper .) . merge (+) `on` algebraUnwrap
+  (-) =  (AlgebraWrapper .) . merge (-) `on` algebraUnwrap
+  (*) =  (AlgebraWrapper .) . merge (*) `on` algebraUnwrap
+  fromInteger = AlgebraWrapper . cst . fromInteger
+  abs = AlgebraWrapper . mmap abs . algebraUnwrap
+  negate = AlgebraWrapper . mmap negate . algebraUnwrap
+  signum = AlgebraWrapper . mmap signum . algebraUnwrap
+
+instance (Mapping k m, Ord a, Boolean a) => Boolean (AlgebraWrapper k m a) where
   true = AlgebraWrapper $ cst true
   false = AlgebraWrapper $ cst false
   not = AlgebraWrapper . mmap not . algebraUnwrap
@@ -104,6 +119,17 @@ instance Mapping k (Constant k) where
 
 instance Neighbourly (Constant k) where
   neighbours = const S.empty
+
+{-
+deriving via (AlgebraWrapper k (Constant k) v)
+  instance (Ord v, Semigroup v) => Semigroup (Constant k v)
+
+deriving via (AlgebraWrapper k (Constant k) v)
+  instance (Ord v, Monoid v) => Monoid (Constant k v)
+
+deriving via (AlgebraWrapper k (Constant k) v)
+  instance (Ord v, Num v) => Num (Constant k v)
+-}
 
 
 -- | Binary decisions, as functions defined on Bool
