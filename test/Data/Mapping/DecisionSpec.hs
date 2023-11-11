@@ -11,10 +11,10 @@ import Data.Mapping.Piecewise
 
 
 boolAct ::    Ord a
-           => AlgebraWrapper (a -> Bool) (Decision Bool OnBool a) Bool
+           => Decision Bool OnBool a Bool
            -> [a]
            -> Bool
-boolAct (AlgebraWrapper a) s = act a (`S.member` S.fromList s)
+boolAct a s = act a (`S.member` S.fromList s)
 
 
 spec :: Spec
@@ -101,12 +101,12 @@ spec = do
     let l3 = (99,100,1):(100,1,2):[(n,n+1,n+2) | n <- [1..98]]
     let independent = all (\(i,j) -> not (test i && test j)) l2
     let maximal = all (\(i,j,k) -> test i || test j || test k) l3
-    let AlgebraWrapper t = independent && maximal
+    let t = independent && maximal
 
     -- Mentioned in Knuth
     it "should have the right count" $ do
       numberTrue (1::Int) 100 t `shouldBe` 1630580875002
-  
+
   describe "Decision trees for monomial divisibility" $ do
 
     let xy2 = M.fromList [("X", 1::Int), ("Y", 2)]

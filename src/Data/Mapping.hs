@@ -20,6 +20,7 @@ import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Function (on)
 import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
+import Data.Kind (Type)
 import Data.Monoid (All(..))
 import Data.PartialOrd
 import Data.Set (Set)
@@ -121,16 +122,34 @@ instance Mapping k (Constant k) where
 instance Neighbourly (Constant k) where
   neighbours = const S.empty
 
-{-
-deriving via (AlgebraWrapper k (Constant k) v)
-  instance (Ord v, Semigroup v) => Semigroup (Constant k v)
+-- Haven't been able to make deriving via work for this one
+instance (Semigroup v) => Semigroup (Constant k v) where
+  Constant x <> Constant y = Constant (x <> y)
 
-deriving via (AlgebraWrapper k (Constant k) v)
-  instance (Ord v, Monoid v) => Monoid (Constant k v)
+-- Haven't been able to make deriving via work for this one
+instance (Monoid v) => Monoid (Constant k v) where
+  mempty = Constant mempty
 
-deriving via (AlgebraWrapper k (Constant k) v)
-  instance (Ord v, Num v) => Num (Constant k v)
--}
+-- Haven't been able to make deriving via work for this one
+instance (Num v) => Num (Constant k v) where
+  Constant x + Constant y = Constant (x + y)
+  Constant x - Constant y = Constant (x - y)
+  Constant x * Constant y = Constant (x * y)
+  abs (Constant x) = Constant (abs x)
+  negate (Constant x) = Constant (negate x)
+  signum (Constant x) = Constant (signum x)
+  fromInteger = Constant . fromInteger
+
+-- Haven't been able to make deriving via work for this one
+instance (Boolean v) => Boolean (Constant k v) where
+  false = Constant false
+  true = Constant true
+  not (Constant x) = Constant (not x)
+  Constant x && Constant y = Constant (x && y)
+  Constant x || Constant y = Constant (x || y)
+  xor (Constant x) (Constant y) = Constant (xor x y)
+  Constant x <--> Constant y = Constant (x <--> y)
+  Constant x --> Constant y = Constant (x --> y)
 
 
 -- | Binary decisions, as functions defined on Bool
@@ -165,11 +184,17 @@ instance Neighbourly OnBool where
     | x == y    = S.empty
     | otherwise = S.singleton (x, y)
 
-{-
--- May work with a future version of cond
+deriving via (AlgebraWrapper Bool OnBool a)
+  instance (Ord a, Semigroup a) => Semigroup (OnBool a)
+
+deriving via (AlgebraWrapper Bool OnBool a)
+  instance (Ord a, Monoid a) => Monoid (OnBool a)
+
+deriving via (AlgebraWrapper Bool OnBool a)
+  instance (Ord a, Num a) => Num (OnBool a)
+
 deriving via (AlgebraWrapper Bool OnBool b)
   instance (Ord b, Boolean b) => Boolean (OnBool b)
--}
 
 
 -- | Maps on Maybe
@@ -195,6 +220,18 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
     if x == y then Just x else Nothing
   merge h (OnMaybe x a) (OnMaybe y b) = OnMaybe (h x y) (merge h a b)
   mergeA h (OnMaybe x a) (OnMaybe y b) = liftA2 OnMaybe (h x y) (mergeA h a b)
+
+deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
+  instance (Mapping k m, Ord a, Semigroup a) => Semigroup (OnMaybe k m a)
+
+deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
+  instance (Mapping k m, Ord a, Monoid a) => Monoid (OnMaybe k m a)
+
+deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
+  instance (Mapping k m, Ord a, Num a) => Num (OnMaybe k m a)
+
+deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
+  instance (Mapping k m, Ord a, Boolean a) => Boolean (OnMaybe k m a)
 
 
 -- | Maps on Either
@@ -224,11 +261,17 @@ instance (Mapping k m,
   mergeA h (OnEither f1 g1) (OnEither f2 g2) = liftA2 OnEither (mergeA h f1 f2) (mergeA h g1 g2)
   merge h (OnEither f1 g1) (OnEither f2 g2) = OnEither (merge h f1 f2) (merge h g1 g2)
 
-{-
--- May work with a future version of cond
-deriving via (AlgebraWrapper (Either k l) (OnEither k l m n) b)
-  instance (Mapping k m, Mapping l n, Ord b, Boolean b) => Boolean (OnEither k l m n b)
--}
+deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
+  instance (Mapping k m, Mapping l n, Ord a, Semigroup a) => Semigroup (OnEither k l m n a)
+
+deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
+  instance (Mapping k m, Mapping l n, Ord a, Monoid a) => Monoid (OnEither k l m n a)
+
+deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
+  instance (Mapping k m, Mapping l n, Ord a, Num a) => Num (OnEither k l m n a)
+
+deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
+  instance (Mapping k m, Mapping l n, Ord a, Boolean a) => Boolean (OnEither k l m n a)
 
 
 -- | Maps on pairs
@@ -251,11 +294,17 @@ instance (Mapping k m,
   mergeA h (OnPair f) (OnPair g) = OnPair <$> mergeA (mergeA h) f g
   merge h (OnPair f) (OnPair g) = OnPair $ merge (merge h) f g
 
-{-
--- May work with a future version of cond
-deriving via (AlgebraWrapper (k, l) (OnPair k l m n) b)
-  instance (Mapping k m, Mapping l n, Ord b, Boolean b) => Boolean (OnPair k l m n b)
--}
+deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
+  instance (Mapping k m, Mapping l n, Ord a, Semigroup a, forall v. Ord v => Ord (n v)) => Semigroup (OnPair k l m n a)
+
+deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
+  instance (Mapping k m, Mapping l n, Ord a, Monoid a, forall v. Ord v => Ord (n v)) => Monoid (OnPair k l m n a)
+
+deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
+  instance (Mapping k m, Mapping l n, Ord a, Num a, forall v. Ord v => Ord (n v)) => Num (OnPair k l m n a)
+
+deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) b)
+  instance (Mapping k m, Mapping l n, Ord b, Boolean b, forall v. Ord v => Ord (n v)) => Boolean (OnPair k l m n b)
 
 
 -- Is the first a subset of the second?

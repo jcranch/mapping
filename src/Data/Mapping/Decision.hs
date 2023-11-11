@@ -1,5 +1,6 @@
 {-# LANGUAGE
       CPP,
+      DerivingVia,
       MultiParamTypeClasses,
       OverloadedStrings,
       RankNTypes,
@@ -310,18 +311,17 @@ singleNode r n = let
   in buildDecision Nothing d
 
 -- | A building block for BDD's - tests if a variable is true
---
--- Again, would be nice to remove the AlgebraWrapper
-genTest :: Boolean b => a -> AlgebraWrapper (a -> Bool) (Decision Bool OnBool a) b
+genTest :: Boolean b => a -> Decision Bool OnBool a b
 genTest r = let
   l = Q.fromList [false, true]
   m = pure . Node r $ OnBool (-1) (-2)
   s = 0
-  in AlgebraWrapper $ Decision (Base l m) s
+  in Decision (Base l m) s
 
 -- | Test if a variable is true (specialised to `Bool`)
-test :: a -> AlgebraWrapper (a -> Bool) (Decision Bool OnBool a) Bool
+test :: a -> Decision Bool OnBool a Bool
 test = genTest
+
 
 -- | Rapidly take the conjunction of the inputs
 buildAll :: Mapping k m => Map a (m Bool) -> Decision k m a Bool
@@ -568,6 +568,19 @@ instance (Ord a, Ord (m Int), Mapping k m) => Mapping (a -> k) (Decision k m a) 
   mergeA p (Decision b1 s1) (Decision b2 s2) = buildDecision (s1, s2) <$> baseMergeA p b1 b2 (S.singleton (s1, s2))
 
 
+deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
+  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Semigroup v) => Semigroup (Decision k m a v)
+
+deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
+  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Monoid v) => Monoid (Decision k m a v)
+
+deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
+  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Num v) => Num (Decision k m a v)
+
+deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
+  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Boolean v) => Boolean (Decision k m a v)
+
+
 -- | Attempt to extend to a bijection
 checkBijection :: (Eq a, Eq v, Mapping k m) => Base k m a v -> Base k m a v -> Bij -> Maybe Bij
 checkBijection (Base l1 m1) (Base l2 m2) = let
@@ -635,3 +648,5 @@ instance (Mapping k m,
         in foldMap g n
       in v |> (here <> there)
     in Q.index (foldl f Q.empty m) s
+
+

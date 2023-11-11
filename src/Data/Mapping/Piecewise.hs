@@ -1,4 +1,7 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE
+      CPP,
+      DerivingVia
+  #-}
 
 module Data.Mapping.Piecewise where
 
@@ -7,6 +10,7 @@ module Data.Mapping.Piecewise where
 import Control.Applicative (liftA2)
 #endif
 import Control.Applicative (liftA3)
+import Data.Algebra.Boolean
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -135,9 +139,14 @@ instance Neighbourly (Piecewise k) where
     v = values m
     in S.fromList $ zip v (tail v)
 
+deriving via (AlgebraWrapper k (Piecewise k) b)
+  instance (Ord k, Ord b, Semigroup b) => Semigroup (Piecewise k b)
 
-{-
--- May work with a future version of cond
+deriving via (AlgebraWrapper k (Piecewise k) b)
+  instance (Ord k, Ord b, Monoid b) => Monoid (Piecewise k b)
+
+deriving via (AlgebraWrapper k (Piecewise k) b)
+  instance (Ord k, Ord b, Num b) => Num (Piecewise k b)
+
 deriving via (AlgebraWrapper k (Piecewise k) b)
   instance (Ord k, Ord b, Boolean b) => Boolean (Piecewise k b)
--}

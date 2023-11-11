@@ -9,37 +9,37 @@ import Data.Mapping.Decision
 main :: IO ()
 main = do
   do
-    let x = test "x" :: AlgebraWrapper (String -> Bool) (Decision Bool OnBool String) Bool
+    let x = test "x" :: Decision Bool OnBool String Bool
     let y = test "y"
 
     putStrLn "  x"
     putStrLn "-----"
-    putStrLn . debugShow $ algebraUnwrap x
+    putStrLn $ debugShow x
     putStrLn ""
 
     putStrLn "  not x"
     putStrLn "---------"
-    putStrLn . debugShow $ algebraUnwrap (not x)
+    putStrLn $ debugShow (not x)
     putStrLn ""
 
     putStrLn "  x && y"
     putStrLn "----------"
-    putStrLn . debugShow $ algebraUnwrap (x && y)
+    putStrLn $ debugShow (x && y)
     putStrLn ""
 
     putStrLn "  y && x"
     putStrLn "----------"
-    putStrLn . debugShow $ algebraUnwrap (y && x)
+    putStrLn $ debugShow (y && x)
     putStrLn ""
 
     putStrLn "  x || y"
     putStrLn "----------"
-    putStrLn . debugShow $ algebraUnwrap (x || y)
+    putStrLn $ debugShow (x || y)
     putStrLn ""
 
     putStrLn "  y || x"
     putStrLn "----------"
-    putStrLn . debugShow $ algebraUnwrap (y || x)
+    putStrLn $ debugShow (y || x)
     putStrLn ""
 
   do
@@ -49,5 +49,5 @@ main = do
     let l3 = (99,100,1):(100,1,2):[(n,n+1,n+2) | n <- [1..98]]
     let independent = all (\(i,j) -> not (test i && test j)) l2
     let maximal = all (\(i,j,k) -> test i || test j || test k) l3
-    let AlgebraWrapper t = independent && maximal :: AlgebraWrapper (Int -> Bool) (Decision Bool OnBool Int) Bool
+    let t = independent && maximal :: Decision Bool OnBool Int Bool
     putStrLn $ debugShow t

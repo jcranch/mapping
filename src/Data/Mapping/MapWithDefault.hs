@@ -1,4 +1,7 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE
+      CPP,
+      DerivingVia
+  #-}
 
 module Data.Mapping.MapWithDefault where
 
@@ -6,6 +9,7 @@ module Data.Mapping.MapWithDefault where
 #else
 import Control.Applicative (liftA2)
 #endif
+import Data.Algebra.Boolean
 import Data.List (foldl', groupBy)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -75,7 +79,7 @@ instance Ord k => Mapping k (MapWithDefault k) where
     in MapWithDefault c $ combine f g
 
 -- | This instance assumes that k is unbounded
-
+--
 -- It would be possible to do something valid in greater generality (for
 -- example, a MaybeBounded class), which might be a good idea.
 instance (Enum k, Eq k) => Neighbourly (MapWithDefault k) where
@@ -84,10 +88,14 @@ instance (Enum k, Eq k) => Neighbourly (MapWithDefault k) where
     d l = zip ([a] <> l) (l <> [a])
     in S.fromList . concatMap (d . fmap snd) . groupBy c $ M.toAscList f
 
+deriving via (AlgebraWrapper k (MapWithDefault k) b)
+  instance (Ord k, Ord b, Semigroup b) => Semigroup (MapWithDefault k b)
 
+deriving via (AlgebraWrapper k (MapWithDefault k) b)
+  instance (Ord k, Ord b, Monoid b) => Monoid (MapWithDefault k b)
 
-{-
--- May work with a future version of cond
+deriving via (AlgebraWrapper k (MapWithDefault k) b)
+  instance (Ord k, Ord b, Num b) => Num (MapWithDefault k b)
+
 deriving via (AlgebraWrapper k (MapWithDefault k) b)
   instance (Ord k, Ord b, Boolean b) => Boolean (MapWithDefault k b)
--}
