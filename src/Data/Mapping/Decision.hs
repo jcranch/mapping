@@ -201,7 +201,12 @@ data Builder o k m a v = Builder {
 emptyBuilder :: Builder o k m a v
 emptyBuilder = Builder M.empty M.empty M.empty
 
-addLeaf :: (Ord o, Ord v) => v -> o -> Builder o k m a v -> Builder o k m a v
+addLeaf :: (Ord o,
+            Ord v)
+        => v
+        -> o
+        -> Builder o k m a v
+        -> Builder o k m a v
 addLeaf x y (Builder l m o) = let
   i = complement (M.size l)
   (j, s) = insertIfAbsent x i l
@@ -210,7 +215,15 @@ addLeaf x y (Builder l m o) = let
     Nothing -> Builder l m o'
     Just l' -> Builder l' m o'
 
-addNode :: (Ord o, Ord (m Int), Ord a, Mapping k m) => a -> m o -> o -> Builder o k m a v -> Builder o k m a v
+addNode :: (Ord o,
+            Ord (m Int),
+            Ord a,
+            Mapping k m)
+        => a
+        -> m o
+        -> o
+        -> Builder o k m a v
+        -> Builder o k m a v
 addNode r a y (Builder l m o) = let
   b = mmap (o M.!) a
   in case isConst b of
@@ -248,12 +261,12 @@ buildBase (Builder l m _) = let
 buildDecision :: Ord o => o -> Builder o k m a v -> Decision k m a v
 buildDecision s b@(Builder _ _ o) = Decision (buildBase b) (o M.! s)
 
-singleNode :: (Ord v, Mapping k m) => a -> m v -> Decision k m a v
+-- | A decision tree based on a single decision
+singleNode :: (Mapping k m, Ord (m Int), Ord a, Ord v) => a -> m v -> Decision k m a v
 singleNode r n = let
-  f b x = addLeaf x x b
-  Builder l _ o = foldl f emptyBuilder n
-  m = M.singleton (Node r $ mmap (o M.!) n) 0
-  in Decision (buildBase $ Builder l m o) 0
+  f b x = addLeaf x (Just x) b
+  d = addNode r (mmap Just n) Nothing $ foldl f emptyBuilder n
+  in buildDecision Nothing d
 
 -- | A building block for BDD's - tests if a variable is true
 --
