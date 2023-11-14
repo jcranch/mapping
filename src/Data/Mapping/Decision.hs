@@ -179,12 +179,15 @@ generalCounts d x0 x1 onVal combine = let
     in (b, combine $ mmap (p b) m)
   in p Nothing . decisionRecurse f g
 
+-- | How many values are true in a decision diagram with integer leaves?
+numberTrueGeneral :: Mapping k m => (m Integer -> Integer) -> Int -> Int -> Decision k m Int Bool -> Integer
+numberTrueGeneral g x0 x1 = let
+  f a = if a then 1 else 0
+  in generalCounts subtract x0 x1 f g
+
 -- | How many values are True in a binary decision diagram with integer leaves?
 numberTrue :: Int -> Int -> Decision Bool OnBool Int Bool -> Integer
-numberTrue x0 x1 = let
-  f a = if a then 1 else 0
-  g (OnBool u v) = u + v
-  in generalCounts subtract x0 x1 f g
+numberTrue = numberTrueGeneral sum
 
 -- | What is the best assignment of keys to values resulting in a
 -- value on which `p` is `True`?
