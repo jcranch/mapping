@@ -38,7 +38,9 @@ module Data.Mapping.Decision where
 #else
 import Control.Applicative (liftA2)
 #endif
+import Control.Monad ((<=<))
 import Data.Algebra.Boolean (Boolean(..))
+import Data.Bifunctor (first)
 import Data.Bijection (Bij)
 import qualified Data.Bijection as B
 import Data.Bits (complement)
@@ -184,6 +186,13 @@ numberTrue x0 x1 = let
   g (OnBool u v) = u + v
   in generalCounts subtract x0 x1 f g
 
+-- | What is the best assignment of keys to values resulting in a
+-- value on which `p` is `True`?
+bestSuchThat :: (Mapping k m, Ord k, Ord a, Ord v) => (v -> Bool) -> (forall w. a -> m w -> Maybe (k, w)) -> Decision k m a v -> Maybe ([(a,k)], v)
+bestSuchThat p q = let
+  f x = if p x then Just ([], x) else Nothing
+  g i = uncurry (\x -> fmap (first ((i,x):))) <=< q i
+  in decisionRecurse f g
 
 -- | Build a sequence from key-value pairs; we take on trust that all
 -- values are represented once.
