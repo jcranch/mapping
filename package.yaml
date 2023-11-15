@@ -20,6 +20,7 @@ dependencies:
 - cond                   >= 0.4       &&  < 0.5
 - containers             >= 0.6.6     &&  < 0.8
 - formatting             >= 7.0.0     &&  < 7.3
+- indexed-traversable    >= 0.1.1     &&  < 0.2
 - partialord             >= 0.0.2     &&  < 0.1
 
 language:            GHC2021

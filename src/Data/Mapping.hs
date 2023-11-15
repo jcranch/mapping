@@ -16,6 +16,7 @@ import Control.Applicative (liftA2)
 #endif
 import Prelude hiding (not, (&&), (||))
 import Data.Algebra.Boolean (Boolean(..))
+import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Function (on)
 import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
@@ -141,6 +142,9 @@ data OnBool a = OnBool {
 instance Foldable OnBool where
   foldMap p (OnBool x y) = p x <> p y
 
+instance FoldableWithIndex Bool OnBool where
+  ifoldMap p (OnBool x y) = p False x <> p True y
+
 instance Traversable OnBool where
   traverse f (OnBool x y) = liftA2 OnBool (f x) (f y)
 
@@ -177,6 +181,9 @@ data OnMaybe k m v = OnMaybe {
 instance Foldable m => Foldable (OnMaybe k m) where
   foldMap f (OnMaybe x a) = f x <> foldMap f a
 
+instance FoldableWithIndex k m => FoldableWithIndex (Maybe k) (OnMaybe k m) where
+  ifoldMap f (OnMaybe x a) = f Nothing x <> ifoldMap (f . Just) a
+
 instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
   cst x = OnMaybe x $ cst x
   mmap p (OnMaybe x a) = OnMaybe (p x) (mmap p a)
@@ -198,6 +205,9 @@ data OnEither k l m n v = OnEither {
 
 instance (Foldable m, Foldable n) => Foldable (OnEither k l m n) where
   foldMap p (OnEither f g) = foldMap p f <> foldMap p g
+
+instance (FoldableWithIndex k m, FoldableWithIndex l n) => FoldableWithIndex (Either k l) (OnEither k l m n) where
+  ifoldMap p (OnEither f g) = ifoldMap (p . Left) f <> ifoldMap (p . Right) g
 
 instance (Mapping k m,
           Mapping l n)

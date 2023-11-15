@@ -75,6 +75,26 @@ spec = do
     it "y || x true on {x,y}" $ do
       boolAct (y || x) ["x", "y"] `shouldBe` True
 
+  describe "Check of listTrue" $ do
+
+    let x0y0 = M.fromList [("x", False), ("y", False)]
+    let x0y1 = M.fromList [("x", False), ("y", True)]
+    let x1y0 = M.fromList [("x", True), ("y", False)]
+    let x1y1 = M.fromList [("x", True), ("y", True)]
+
+    it "Should work on &&" $ do
+      S.fromList (listTrue (S.fromList ["x", "y"]) (algebraUnwrap (x && y)))
+        `shouldBe` S.fromList [x1y1]
+    it "Should work on ||" $ do
+      S.fromList (listTrue (S.fromList ["x", "y"]) (algebraUnwrap (x || y)))
+        `shouldBe` S.fromList [x0y1, x1y0, x1y1]
+    it "Should work on not (1)" $ do
+      S.fromList (listTrue (S.fromList ["x", "y"]) (algebraUnwrap (not x)))
+        `shouldBe` S.fromList [x0y0, x0y1]
+    it "Should work on not (2)" $ do
+      S.fromList (listTrue (S.fromList ["x", "y"]) (algebraUnwrap (not y)))
+        `shouldBe` S.fromList [x0y0, x1y0]
+
   describe "Properties of independent sets in C_100" $ do
 
     let l2 = (100,1):[(n,n+1) | n <- [1..99]]

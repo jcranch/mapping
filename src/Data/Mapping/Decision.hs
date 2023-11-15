@@ -46,6 +46,7 @@ import qualified Data.Bijection as B
 import Data.Bits (complement)
 import Data.Bool (bool)
 import Data.Foldable (toList)
+import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Functor.Identity (Identity(..))
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IS
@@ -56,6 +57,7 @@ import Data.Set (Set)
 import qualified Data.Set as S
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import qualified Data.Map.Merge.Strict as M
 import Data.Mapping.Util (insertIfAbsent)
 import Formatting ((%))
 import qualified Formatting as F
@@ -188,6 +190,33 @@ numberTrueGeneral g x0 x1 = let
 -- | How many values are True in a binary decision diagram with integer leaves?
 numberTrue :: Int -> Int -> Decision Bool OnBool Int Bool -> Integer
 numberTrue = numberTrueGeneral sum
+
+-- | Assignments of variables that result in True
+chunksTrue :: (Mapping k m, FoldableWithIndex k m, Ord k, Ord a) => Decision k m a Bool -> [Map a k]
+chunksTrue = let
+  f False = []
+  f True = [M.empty]
+  g a = ifoldMap (\x -> fmap (M.insert a x))
+  in decisionRecurse f g
+
+-- | All true values (may be a very long list even for reasonable Decisions)
+listTrue :: forall k m a.
+           (Mapping k m,
+            FoldableWithIndex k m,
+            Ord k,
+            Ord a)
+         => Set a
+         -> Decision k m a Bool
+         -> [Map a k]
+listTrue s = let
+  m = M.fromSet (const ()) s
+  u = ifoldMap (\i _ -> [i]) $ cst @k @m ()
+  fillIn = let
+    onL = M.traverseMissing (\_ () -> u)
+    onR = M.mapMissing (const (error "Expected a key"))
+    onB = M.zipWithMatched (\_ () -> id)
+    in M.mergeA onL onR onB
+  in fillIn m <=< chunksTrue
 
 -- | What is the best assignment of keys to values resulting in a
 -- value on which `p` is `True`?
