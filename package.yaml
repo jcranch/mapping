@@ -1,5 +1,5 @@
 name:                mappings
-version:             0.1.0.0
+version:             0.2.0.0
 github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"
@@ -17,7 +17,7 @@ description:         Please read README.md on github
 
 dependencies:
 - base                   >= 4.16      &&  < 4.20
-- cond                   >= 0.4       &&  < 0.5
+- cond                   >= 0.5.1     &&  < 0.6
 - containers             >= 0.6.6     &&  < 0.8
 - formatting             >= 7.0.0     &&  < 7.3
 - indexed-traversable    >= 0.1.1     &&  < 0.2
