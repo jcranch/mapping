@@ -25,7 +25,7 @@ dependencies:
 
 language:            GHC2021
 
-Tested-With:         GHC ==9.2.8 || ==9.4.7 || ==9.6.3
+# Tested-With:         GHC ==9.2.8 || ==9.4.7 || ==9.6.3
 
 library:
   source-dirs: src
