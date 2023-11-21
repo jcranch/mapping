@@ -1,29 +1,31 @@
 name:                mappings
-version:             0.2.0.0
+version:             0.2.2.0
 github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"
 maintainer:          "j.d.cranch@sheffield.ac.uk"
 copyright:           "2023 James Cranch"
 
-extra-source-files:
+extra-doc-files:
 - README.md
 - CHANGELOG.md
 
 synopsis:            Types which represent functions k -> v
 category:            Data structures
 
-description:         Please read README.md on github
+description:         A typeclass and a number of implementations; please read README.md on github
 
 dependencies:
 - base                   >= 4.16      &&  < 4.20
 - cond                   >= 0.5.1     &&  < 0.6
-- containers             >= 0.6.6     &&  < 0.8
+- containers             >= 0.6.5     &&  < 0.8
 - formatting             >= 7.0.0     &&  < 7.3
 - indexed-traversable    >= 0.1.1     &&  < 0.2
 - partialord             >= 0.0.2     &&  < 0.1
 
 language:            GHC2021
+
+Tested-With:         GHC ==9.2.8 || ==9.4.7 || ==9.6.3
 
 library:
   source-dirs: src
@@ -64,5 +66,7 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - hspec                          >= 2.11     && < 2.12
     - mappings
-    - hspec        >= 2.11     && < 2.12
+    build-tool-depends:
+    - hspec-discover:hspec-discover  >= 2.11     && < 2.12
