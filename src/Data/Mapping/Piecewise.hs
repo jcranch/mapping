@@ -28,8 +28,10 @@ data Piecewise k v = Piecewise {
   starts :: Map k v
 } deriving (Eq, Ord)
 
-piecewiseFromAsc :: Eq k => v -> [(k,v)] -> Piecewise k v
-piecewiseFromAsc k = Piecewise k . M.fromAscList
+rightEnd :: Piecewise k v -> v
+rightEnd (Piecewise a m) = case M.lookupMax m of
+  Nothing    -> a
+  Just (_,b) -> b
 
 instance (Show k, Show v) => Show (Piecewise k v) where
   showsPrec d (Piecewise k m) =
@@ -41,19 +43,36 @@ instance (Show k, Show v) => Show (Piecewise k v) where
 changeAt :: v -> k -> v -> Piecewise k v
 changeAt a x b = Piecewise a $ M.singleton x b
 
+greaterThanOrEqual :: k -> Piecewise k Bool
+greaterThanOrEqual k = changeAt False k True
+
+-- | A synonym for `greaterThanOrEqual`; may perhaps be removed in
+-- future.
 atLeast :: k -> Piecewise k Bool
-atLeast k = changeAt False k True
+atLeast = greaterThanOrEqual
 
 lessThan :: k -> Piecewise k Bool
 lessThan k = changeAt True k False
 
-fromAscList :: (Ord k, Eq v) => v -> [(k,v)] -> Piecewise k v
+-- | This is subject to the usual concerns about `Enum` (it not to be
+-- used with floating-point arithmetic, for example)
+greaterThan :: Enum k => k -> Piecewise k Bool
+greaterThan = greaterThanOrEqual . succ
+
+-- | This is subject to the usual concerns about `Enum` (it not to be
+-- used with floating-point arithmetic, for example)
+lessThanOrEqual :: Enum k => k -> Piecewise k Bool
+lessThanOrEqual = lessThan . succ
+
+-- | Assumes the keys are distinct and increasing (but not that the
+-- values are distinct)
+fromAscList :: (Eq v) => v -> [(k,v)] -> Piecewise k v
 fromAscList = let
   inner _ [] = []
   inner a ((y,b):r)
     | a == b    = inner a r
     | otherwise = (y,b):inner b r
-  run x = Piecewise x . M.fromAscList . inner x
+  run x = Piecewise x . M.fromDistinctAscList . inner x
   in run
 
 values :: Piecewise k v -> [v]
