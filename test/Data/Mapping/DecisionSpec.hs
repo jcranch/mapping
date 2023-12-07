@@ -114,7 +114,7 @@ spec = do
     let xyz = M.fromList [("X", 1), ("Y", 1), ("Z", 1)]
     let monomials = M.fromList [(xy2, 1::Int), (x2y, 2), (xyz, 3)]
     let f i b = if b then i else 0
-    let d = M.foldlWithKey' (\t m i -> merge max t (mmap (f i) . buildAll $ fmap atLeast m)) (cst 0) monomials
+    let d = M.foldlWithKey' (\t m i -> merge max t (mmap (f i) . buildAll $ fmap greaterThanOrEqual m)) (cst 0) monomials
     let mapAct m = act d (\a -> M.findWithDefault 0 a $ M.fromList m)
 
     it "should get the right monomial for w^2y^4" $ do

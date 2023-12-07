@@ -11,6 +11,7 @@ import Control.Applicative (liftA2)
 #endif
 import Control.Applicative (liftA3)
 import Data.Algebra.Boolean
+import qualified Data.Map.Internal as MI
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -24,48 +25,20 @@ import Data.Mapping
 -- right-continuous: values are in general defined on intervals $a
 -- \leq x < b$ which are closed on the left and open on the right.
 data Piecewise k v = Piecewise {
+  -- | The value taken for sufficiently small keys
   leftEnd :: v,
   starts :: Map k v
 } deriving (Eq, Ord)
 
+-- | The value taken for sufficiently large keys
 rightEnd :: Piecewise k v -> v
 rightEnd (Piecewise a m) = case M.lookupMax m of
   Nothing    -> a
   Just (_,b) -> b
 
-instance (Show k, Show v) => Show (Piecewise k v) where
-  showsPrec d (Piecewise k m) =
-    ("piecewiseFromAsc " <>) .
-    showsPrec d k .
-    (" " <>) .
-    showList (M.toList m)
-
-changeAt :: v -> k -> v -> Piecewise k v
-changeAt a x b = Piecewise a $ M.singleton x b
-
-greaterThanOrEqual :: k -> Piecewise k Bool
-greaterThanOrEqual k = changeAt False k True
-
--- | A synonym for `greaterThanOrEqual`; may perhaps be removed in
--- future.
-atLeast :: k -> Piecewise k Bool
-atLeast = greaterThanOrEqual
-
-lessThan :: k -> Piecewise k Bool
-lessThan k = changeAt True k False
-
--- | This is subject to the usual concerns about `Enum` (it not to be
--- used with floating-point arithmetic, for example)
-greaterThan :: Enum k => k -> Piecewise k Bool
-greaterThan = greaterThanOrEqual . succ
-
--- | This is subject to the usual concerns about `Enum` (it not to be
--- used with floating-point arithmetic, for example)
-lessThanOrEqual :: Enum k => k -> Piecewise k Bool
-lessThanOrEqual = lessThan . succ
-
--- | Assumes the keys are distinct and increasing (but not that the
--- values are distinct)
+-- | Assumes the keys are distinct and increasing (but consecutive
+-- values may be the same, in which case the intervening keys are
+-- removed)
 fromAscList :: (Eq v) => v -> [(k,v)] -> Piecewise k v
 fromAscList = let
   inner _ [] = []
@@ -75,8 +48,48 @@ fromAscList = let
   run x = Piecewise x . M.fromDistinctAscList . inner x
   in run
 
+instance (Show k, Show v) => Show (Piecewise k v) where
+  showsPrec d (Piecewise k m) =
+    ("fromAscList " <>) .
+    showsPrec d k .
+    (" " <>) .
+    showList (M.toList m)
+
+-- | Assumes that the keys are distinct and increasing, and also that
+-- consecutive values are distinct
+fromAscListUnsafe :: Eq k => v -> [(k,v)] -> Piecewise k v
+fromAscListUnsafe k = Piecewise k . M.fromAscList
+
+-- | Takes value `a` for keys less than `x` and `b` otherwise
+changeAt :: v -> k -> v -> Piecewise k v
+changeAt a x b = Piecewise a $ M.singleton x b
+
+-- | Is the value greater than or equal to `k`?
+greaterThanOrEqual :: k -> Piecewise k Bool
+greaterThanOrEqual k = changeAt False k True
+
+-- | Is the value less than `k`?
+lessThan :: k -> Piecewise k Bool
+lessThan k = changeAt True k False
+
+-- | Is the value greater than `k`? This is subject to the usual
+-- concerns about `Enum` (it not to be used with floating-point
+-- arithmetic, for example)
+greaterThan :: Enum k => k -> Piecewise k Bool
+greaterThan = greaterThanOrEqual . succ
+
+-- | Is the value less than or equal to `k`? This is subject to the
+-- usual concerns about `Enum` (it not to be used with floating-point
+-- arithmetic, for example)
+lessThanOrEqual :: Enum k => k -> Piecewise k Bool
+lessThanOrEqual = lessThan . succ
+
+-- | All values, in order of increasing key
 values :: Piecewise k v -> [v]
 values (Piecewise x m) = x : M.elems m
+
+instance (Eq k) => Functor (Piecewise k) where
+  fmap p (Piecewise a f) = fromAscListUnsafe (p a) (fmap p <$> M.toList f)
 
 instance Foldable (Piecewise k) where
   foldMap f (Piecewise a m) = f a <> foldMap f m
@@ -91,7 +104,7 @@ instance Ord k => Mapping k (Piecewise k) where
 
   isConst (Piecewise a f) = if M.null f then Just a else Nothing
 
-  mmap p (Piecewise a f) = fromAscList (p a) (fmap p <$> M.toList f)
+  mmap = fmap
 
   mtraverse p (Piecewise a f) = liftA2 fromAscList (p a) (traverse (traverse p) $ M.toList f)
 
@@ -169,3 +182,45 @@ deriving via (AlgebraWrapper k (Piecewise k) b)
 
 deriving via (AlgebraWrapper k (Piecewise k) b)
   instance (Ord k, Ord b, Boolean b) => Boolean (Piecewise k b)
+
+-- | Alter keys according to a function, assumed to be monotone (not checked)
+mapKeysMonotonic :: (k -> l) -> Piecewise k v -> Piecewise l v
+mapKeysMonotonic f (Piecewise a m) = Piecewise a (M.mapKeysMonotonic f m)
+
+-- | Alter keys according to a function, assumed to be antitone (not checked)
+mapKeysAntitonic :: (k -> l) -> Piecewise k v -> Piecewise l v
+mapKeysAntitonic f = let
+
+  inner [] a v        = Piecewise a $ M.fromDistinctAscList v
+  inner ((k,a):u) b v = inner u a ((f k,b):v)
+
+  start (Piecewise a m) = inner (M.toList m) a []
+  in start
+
+-- | Split in two: one which assumes keys are less than `k`, and one
+-- which assumes them greater than or equal to `k`.
+splitPiecewise :: Ord k => k -> Piecewise k v -> (Piecewise k v, Piecewise k v)
+splitPiecewise k (Piecewise a m) = case M.splitLookup k m of
+  (m1, Just b, m2) -> (Piecewise a m1, Piecewise b m2)
+  (m1, Nothing, m2) -> let
+    p1 = Piecewise a m1
+    in (p1, Piecewise (rightEnd p1) m2)
+
+-- | Assemble two maps; it is assumed that all keys in the left-hand
+-- map are less than `k` and all keys in the right-hand map are
+-- greater than or equal to `k` (which is not checked).
+gluePiecewise :: (Eq v) => Piecewise k v -> k -> Piecewise k v -> Piecewise k v
+gluePiecewise p@(Piecewise a m) k (Piecewise c n) = let
+  b = rightEnd p
+  in Piecewise a (if b == c then MI.link2 m n else MI.link k c m n)
+
+-- | This is almost a monad (with `cst` as `pure`) except that we need
+-- an `Eq` instance on the values.
+mjoin :: (Ord k, Eq w) => (v -> Piecewise k w) -> Piecewise k v -> Piecewise k w
+mjoin f (Piecewise a m) = let
+  inner p []        = p
+  inner p ((k,q):l) = let
+    (p',  _) = splitPiecewise k p
+    (_ , q') = splitPiecewise k q
+    in gluePiecewise p' k $ inner q' l
+  in inner (f a) (fmap f <$> M.toList m)
