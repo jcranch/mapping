@@ -57,8 +57,8 @@ instance (Show k, Show v) => Show (Piecewise k v) where
 
 -- | Assumes that the keys are distinct and increasing, and also that
 -- consecutive values are distinct
-fromAscListUnsafe :: Eq k => v -> [(k,v)] -> Piecewise k v
-fromAscListUnsafe k = Piecewise k . M.fromAscList
+fromAscListUnsafe :: v -> [(k,v)] -> Piecewise k v
+fromAscListUnsafe k = Piecewise k . M.fromDistinctAscList
 
 -- | Takes value `a` for keys less than `x` and `b` otherwise
 changeAt :: v -> k -> v -> Piecewise k v
@@ -191,10 +191,13 @@ mapKeysMonotonic f (Piecewise a m) = Piecewise a (M.mapKeysMonotonic f m)
 mapKeysAntitonic :: (k -> l) -> Piecewise k v -> Piecewise l v
 mapKeysAntitonic f = let
 
-  inner [] a v        = Piecewise a $ M.fromDistinctAscList v
-  inner ((k,a):u) b v = inner u a ((f k,b):v)
+  inner a MI.Tip = (a, MI.Tip)
+  inner a (MI.Bin s x b l r) = let
+    (a', l') = inner a l
+    (b', r') = inner b r
+    in (b', MI.Bin s (f x) a' r' l')
 
-  start (Piecewise a m) = inner (M.toList m) a []
+  start (Piecewise a m) = uncurry Piecewise $ inner a m
   in start
 
 -- | Split in two: one which assumes keys are less than `k`, and one
