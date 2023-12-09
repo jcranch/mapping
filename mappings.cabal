@@ -20,6 +20,8 @@ extra-doc-files:
     README.md
     CHANGELOG.md
 
+tested-with:    GHC==9.6.2, GHC==9.4.5, GHC==9.2.8
+
 source-repository head
   type: git
   location: https://github.com/jcranch/mapping
