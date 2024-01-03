@@ -110,7 +110,7 @@ import Data.Mapping
 assemble :: Monad m => (k -> u -> Map k v -> m v) -> Map k u -> m (Map k v)
 assemble f = let
   go a MI.Tip = pure a
-  go a (MI.Bin n k v l r) = do
+  go a (MI.Bin _ k v l r) = do
     a' <- go a l
     v' <- f k v a'
     go (MI.link k v' a' M.empty) r
@@ -244,6 +244,8 @@ genRecurse p q m0 = let
   -- TODO Check this works: it depends on strict maps behaving lazily:
   -- keys can be forced in order. If this fails could use lazy lists
   -- as well and then force it
+  --
+  -- TODO Could instead use assemble, in the Identity functor?
   f (Leaf x) = p x
   f (Branch c n) = q c (mmap ((m IM.!) . serial) n)
   m = fmap f $ completeDownstream m0
@@ -660,7 +662,7 @@ addMeldA p q = let
         LT -> (c, q c (,) m (cst . Node j $ Branch d n))
         GT -> (d, q c (,) (cst . Node i $ Branch c m) n)
         EQ -> (c, q c (,) m n)
-      done' = M.insert (i,j) (Right (c, mmap (bimap serial serial) o)) done
+      done' = M.insert (i,j) (Right (a, mmap (bimap serial serial) o)) done
       in process done' $ foldl enqueue todo' o
 
   cook :: Map (Int, Int) (Either (f w) (a, o (Int, Int)))
@@ -679,14 +681,13 @@ addMeldA p q = let
 
   in process M.empty
 
-{-
-
 meldA :: forall f j k l m n o a u v w.
          (Traversable f,
           Applicative f,
-          Mapping l n,
-          Functor n,
-          forall x. Ord x => Ord (n x),
+          Mapping j m,
+          Mapping k n,
+          Mapping l o,
+          forall x. Ord x => Ord (o x),
           Ord a,
           Ord w)
       => (u -> v -> f w)
@@ -694,29 +695,35 @@ meldA :: forall f j k l m n o a u v w.
       -> Decision j m a u
       -> Decision k n a v
       -> f (Decision l o a w)
-meldA p q (Decision (Node i a)) (Decision (Node j b)) = fmap Decision . (M.! (i,j)) . fst $ addMeldA p q (M.singleton (i,j) (a,b)) emptyBuilder
+meldA p q (Decision (Node i a)) (Decision (Node j b)) = fmap Decision .
+  (M.! (i,j)) .
+  fst $
+  addMeldA p q (M.singleton (i,j) (a,b)) emptyBuilder
 
 
 addMeld :: forall j k l m n o a u v w.
-           (Mapping l n,
+           (Mapping j m,
+            Mapping k n,
+            Mapping l o,
             Functor n,
-            forall x. Ord x => Ord (n x),
+            forall x. Ord x => Ord (o x),
             Ord a,
             Ord w)
         => (u -> v -> w)
         -> (forall x y z. Ord z => a -> (x -> y -> z) -> m x -> n y -> o z)
         -> Map (Int, Int) (Node' j m a u, Node' k n a v)
-        -> Builder l n a w
+        -> Builder l o a w
         -> (Map (Int, Int) (Node l o a w), Builder l o a w)
 addMeld p q m = let
   p' x y = Identity $ p x y
   in first (fmap runIdentity) . addMeldA p' q m
 
-
 meld :: forall j k l m n o a u v w.
-        (Mapping l n,
+        (Mapping j m,
+         Mapping k n,
+         Mapping l o,
          Functor n,
-         forall x. Ord x => Ord (n x),
+         forall x. Ord x => Ord (o x),
          Ord a,
          Ord w)
      => (u -> v -> w)
@@ -725,7 +732,6 @@ meld :: forall j k l m n o a u v w.
      -> Decision k n a v
      -> Decision l o a w
 meld p q (Decision (Node i a)) (Decision (Node j b)) = Decision . (M.! (i,j)) . fst $ addMeld p q (M.singleton (i,j) (a,b)) emptyBuilder
-
 
 addMergeA :: forall f k m a u v w.
              (Traversable f,
@@ -741,6 +747,8 @@ addMergeA :: forall f k m a u v w.
           -> (Map (Int, Int) (f (Node k m a w)), Builder k m a w)
 addMergeA p = addMeldA p (\_ -> merge)
 
+-- | You should use this, rather than `mergeA`, when possible (that
+-- is, when valued in a `Traversable` functor); it reuses nodes more.
 fastMergeA :: forall f k m a u v w.
               (Traversable f,
                Applicative f,
@@ -766,6 +774,10 @@ addMerge :: forall k m a u v w.
          -> Builder k m a w
          -> (Map (Int, Int) (Node k m a w), Builder k m a w)
 addMerge p = addMeld p (const merge)
+
+
+{-
+
 
 
 {-
@@ -1048,6 +1060,7 @@ instance (Mapping k m,
 -    in Q.index (foldl f Q.empty m) s
 -}
 
+-}
 
 -- | Output the structure of a Decision
 debugShow :: forall k m a v. (Mapping k m, Show a, Show v, Show (m Int)) => Decision k m a v -> String
@@ -1056,4 +1069,3 @@ debugShow (Decision (Node i n)) = let
   g (Leaf x) = "Leaf " <> showsPrec 11 x ""
   g (Branch a m) = "Branch " <> showsPrec 11 a " " <> showsPrec 11 (mmap serial m) ""
   in unlines . ifoldMap f . completeDownstream $ IM.singleton i n
--}
