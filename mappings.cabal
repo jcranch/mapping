@@ -20,8 +20,6 @@ extra-doc-files:
     README.md
     CHANGELOG.md
 
-tested-with:    GHC==9.6.2, GHC==9.4.5, GHC==9.2.8
-
 source-repository head
   type: git
   location: https://github.com/jcranch/mapping
@@ -47,6 +45,7 @@ library
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
     , indexed-traversable >=0.1.1 && <0.2
+    , mtl ==2.3.*
     , partialord >=0.0.2 && <0.1
   default-language: GHC2021
 
@@ -66,6 +65,7 @@ executable view
     , formatting >=7.0.0 && <7.3
     , indexed-traversable >=0.1.1 && <0.2
     , mappings
+    , mtl ==2.3.*
     , partialord >=0.0.2 && <0.1
   default-language: GHC2021
 
@@ -92,5 +92,6 @@ test-suite mapping
     , hspec ==2.11.*
     , indexed-traversable >=0.1.1 && <0.2
     , mappings
+    , mtl ==2.3.*
     , partialord >=0.0.2 && <0.1
   default-language: GHC2021

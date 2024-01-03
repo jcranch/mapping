@@ -158,6 +158,16 @@ data OnBool a = OnBool {
   onTrue :: a
 } deriving (Eq, Ord, Show, Functor)
 
+-- | The tautological `OnBool` taking `False` to `false` and `True` to
+-- `true`.
+genTautOnBool :: Boolean a => OnBool a
+genTautOnBool = OnBool false true
+
+-- | The tautological `OnBool` taking `False` to `False` and `True` to
+-- `True`.
+tautOnBool :: OnBool Bool
+tautOnBool = genTautOnBool
+
 instance Foldable OnBool where
   foldMap p (OnBool x y) = p x <> p y
 

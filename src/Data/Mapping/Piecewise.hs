@@ -21,7 +21,7 @@ import Data.Mapping
 -- | A data structure storing mappings that are constant on
 -- intervals.
 --
--- If the space of keys not discrete, then these mappings are
+-- If the space of keys is not discrete, then these mappings are
 -- right-continuous: values are in general defined on intervals $a
 -- \leq x < b$ which are closed on the left and open on the right.
 data Piecewise k v = Piecewise {
