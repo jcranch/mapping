@@ -74,7 +74,7 @@ import Control.Applicative (liftA2)
 import Control.Monad ((<=<))
 import Control.Monad.State (State, state, runState)
 import Data.Algebra.Boolean (Boolean(..), AllB(..))
-import Data.Bifunctor (first)
+import Data.Bifunctor (first, bimap)
 import Data.Bijection (Bij)
 import qualified Data.Bijection as B
 import Data.Bits (complement)
@@ -623,9 +623,10 @@ restrict f (Decision (Node i n)) = Decision . (IM.! i) . fst $ addRestrict f (IM
 addMeldA :: forall f j k l m n o a u v w.
             (Traversable f,
              Applicative f,
+             Mapping j m,
+             Mapping k n,
              Mapping l o,
-             Functor n,
-             forall x. Ord x => Ord (n x),
+             forall x. Ord x => Ord (o x),
              Ord a,
              Ord w)
          => (u -> v -> f w)
@@ -635,33 +636,32 @@ addMeldA :: forall f j k l m n o a u v w.
          -> (Map (Int, Int) (f (Node l o a w)), Builder l o a w)
 addMeldA p q = let
 
-  process :: Map (Int, Int) (Node' j m a u, Node' k n a v)
-          -> Builder l o a w
-          -> (Map (Int, Int) (f (Node l o a w)), Builder l o a w)
-  process = let
-    inner :: Map (Int, Int) (Either (f w) (a, o (Int, Int)))
+  enqueue u (Node i m, Node j n) = M.insert (i,j) (m,n) u
+  
+  process :: Map (Int, Int) (Either (f w) (a, o (Int, Int)))
           -> Map (Int, Int) (Node' j m a u, Node' k n a v)
           -> Builder l o a w
           -> (Map (Int, Int) (f (Node l o a w)), Builder l o a w)
-    inner done todo = case M.maxViewWithKey todo of
-      Nothing -> cook done
-{-
-      Just (((i,j),(Leaf x, Leaf y)), todo') -> let
-        done' = M.insert (i,j) (Left (p x y)) done
-        in inner done' todo'
-      Just (((i,j),(Leaf x, Branch d n)), todo') -> let
-        done' = M.insert (i,j) (Right _) done
-        in inner done' _
-      Just (((i,j),(Branch c m, Leaf y)), todo') -> _
-      Just (((i,j),(Branch c m, Branch d n)), todo') -> case compare c d of
-        LT -> _
-        GT -> _
-        EQ -> let
-          done' = M.insert (i,j) (Right ((c,d),(m,n))) done
-          o = merge (,) m n
-          in inner done' $ foldl (\u (Node i' x, Node j' y) -> M.insert (i',j') (x,y) u) todo' o
--}
-    in inner M.empty
+  process done todo = case M.maxViewWithKey todo of
+    Nothing -> cook done
+    Just (((i,j),(Leaf x, Leaf y)), todo') -> let
+      done' = M.insert (i,j) (Left (p x y)) done
+      in process done' todo'
+    Just (((i,j),(Leaf x, Branch d n)), todo') -> let
+      o = q d (,) (cst . Node i $ Leaf x) n
+      done' = M.insert (i,j) (Right (d, mmap (bimap serial serial) o)) done
+      in process done' $ foldl enqueue todo' o
+    Just (((i,j),(Branch c m, Leaf y)), todo') -> let
+      o = q c (,) m (cst . Node j $ Leaf y)
+      done' = M.insert (i,j) (Right (c, mmap (bimap serial serial) o)) done
+      in process done' $ foldl enqueue todo' o
+    Just (((i,j),(Branch c m, Branch d n)), todo') -> let
+      (a,o) = case compare c d of
+        LT -> (c, q c (,) m (cst . Node j $ Branch d n))
+        GT -> (d, q c (,) (cst . Node i $ Branch c m) n)
+        EQ -> (c, q c (,) m n)
+      done' = M.insert (i,j) (Right (c, mmap (bimap serial serial) o)) done
+      in process done' $ foldl enqueue todo' o
 
   cook :: Map (Int, Int) (Either (f w) (a, o (Int, Int)))
        -> Builder l o a w
@@ -670,14 +670,14 @@ addMeldA p q = let
     -- TODO use assemble
     f :: Builder l o a w
       -> (Int, Int)
-      -> Either (f w) (a, n (Int, Int))
-      -> (Builder l o a w, f (Node l n a w))
+      -> Either (f w) (a, o (Int, Int))
+      -> (Builder l o a w, f (Node l o a w))
     f b _ (Left x) = swap $ runState (traverse (state . addLeaf) x) b
     f b _ (Right (c, u)) = swap $ runState (traverse (state . addBranch c) $ mtraverse (v M.!) u) b
     (v, b') = swap $ M.mapAccumWithKey f b0 p0
     in (v, b')
 
-  in process
+  in process M.empty
 
 {-
 
