@@ -35,16 +35,32 @@ import Data.Void (Void)
 -- very large collection of keys, the only folds that normally make
 -- sense are those over idempotent monoids.
 class Foldable m => Mapping k m | m -> k where
+
+  -- | The constant functions
   cst :: v -> m v
 
+  -- | The function realising an element of @m v@ as a function @k -> v@.
   act :: m v -> k -> v
 
+  -- | Is this a constant mapping, and if so what's the value?
   isConst :: Ord v => m v -> Maybe v
 
-  mtraverse :: (Applicative f, Ord v) => (u -> f v) -> m u -> f (m v)
-
+  -- | Like `fmap`, but unfortunately some instances require an `Ord`
+  -- instance on the values.
   mmap :: Ord v => (u -> v) -> m u -> m v
   mmap p = runIdentity . mtraverse (Identity . p)
+
+  -- | Like `fmap`, but circumvents the need for an `Ord` instance on
+  -- @v@ by demanding that the function be injective.
+  mmapInj :: (u -> v) -> m u -> m v
+
+  -- | Like `traverse`, but unfortunately some instances require an
+  -- `Ord` instance on the values.
+  mtraverse :: (Applicative f, Ord v) => (u -> f v) -> m u -> f (m v)
+
+  -- | Like `traverse`, but circumvents the need for an `Ord` instance
+  -- on @v@ by demanding that the function be injective.
+  mtraverseInj :: Applicative f => (u -> f v) -> m u -> f (m v)
 
   mergeA :: (Applicative f, Ord w) => (u -> v -> f w) -> m u -> m v -> f (m w)
 
@@ -114,7 +130,9 @@ instance Mapping k (Constant k) where
   cst = Constant
   act (Constant x) _ = x
   mmap f (Constant x) = Constant $ f x
+  mmapInj f (Constant x) = Constant $ f x
   mtraverse f (Constant x) = Constant <$> f x
+  mtraverseInj f (Constant x) = Constant <$> f x
   isConst (Constant x) = Just x
   merge f (Constant x) (Constant y) = Constant $ f x y
   mergeA f (Constant x) (Constant y) = Constant <$> f x y
@@ -180,7 +198,9 @@ instance Traversable OnBool where
 instance Mapping Bool OnBool where
   cst x = OnBool x x
   mmap = fmap
+  mmapInj = fmap
   mtraverse = traverse
+  mtraverseInj = traverse
   act (OnBool x _) False = x
   act (OnBool _ x) True = x
   isConst (OnBool x y)
@@ -222,7 +242,9 @@ instance FoldableWithIndex k m => FoldableWithIndex (Maybe k) (OnMaybe k m) wher
 instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
   cst x = OnMaybe x $ cst x
   mmap p (OnMaybe x a) = OnMaybe (p x) (mmap p a)
+  mmapInj p (OnMaybe x a) = OnMaybe (p x) (mmapInj p a)
   mtraverse p (OnMaybe x a) = liftA2 OnMaybe (p x) (mtraverse p a)
+  mtraverseInj p (OnMaybe x a) = liftA2 OnMaybe (p x) (mtraverseInj p a)
   act (OnMaybe x _) Nothing = x
   act (OnMaybe _ a) (Just y) = act a y
   isConst (OnMaybe x a) = do
@@ -261,7 +283,9 @@ instance (Mapping k m,
        => Mapping (Either k l) (OnEither k l m n) where
   cst x = OnEither (cst x) (cst x)
   mmap p (OnEither f g) = OnEither (mmap p f) (mmap p g)
+  mmapInj p (OnEither f g) = OnEither (mmapInj p f) (mmapInj p g)
   mtraverse p (OnEither f g) = liftA2 OnEither (mtraverse p f) (mtraverse p g)
+  mtraverseInj p (OnEither f g) = liftA2 OnEither (mtraverseInj p f) (mtraverseInj p g)
   act (OnEither f _) (Left x) = act f x
   act (OnEither _ g) (Right y) = act g y
   isConst (OnEither f g) = do
@@ -298,7 +322,9 @@ instance (Mapping k m,
        => Mapping (k, l) (OnPair k l m n) where
   cst x = OnPair . cst $ cst x
   mmap p (OnPair f) = OnPair (mmap (mmap p) f)
+  mmapInj p (OnPair f) = OnPair (mmapInj (mmapInj p) f)
   mtraverse p (OnPair f) = OnPair <$> mtraverse (mtraverse p) f
+  mtraverseInj p (OnPair f) = OnPair <$> mtraverseInj (mtraverseInj p) f
   act (OnPair f) (x, y) = act (act f x) y
   isConst (OnPair f) = isConst =<< isConst f
   mergeA h (OnPair f) (OnPair g) = OnPair <$> mergeA (mergeA h) f g

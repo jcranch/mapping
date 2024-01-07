@@ -51,11 +51,13 @@ instance Ord k => Mapping k (MapWithDefault k) where
       y = p x
       in if b == y then Nothing else Just y
     in MapWithDefault b $ M.mapMaybe q f
+  mmapInj p (MapWithDefault a f) = MapWithDefault (p a) (fmap p f)
   mtraverse p (MapWithDefault a f) = let
     b = p a
     e x y = if x == y then Nothing else Just y
     g _ x = liftA2 e b (p x)
     in liftA2 MapWithDefault b $ M.traverseMaybeWithKey g f
+  mtraverseInj p (MapWithDefault a f) = liftA2 MapWithDefault (p a) (traverse p f)
   act (MapWithDefault a f) x = fromMaybe a (M.lookup x f)
   isConst (MapWithDefault a f) = if M.null f then Just a else Nothing
   mergeA h (MapWithDefault a f) (MapWithDefault b g) = let

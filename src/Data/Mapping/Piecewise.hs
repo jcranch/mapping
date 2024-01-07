@@ -48,6 +48,10 @@ fromAscList = let
   run x = Piecewise x . M.fromDistinctAscList . inner x
   in run
 
+-- | Safe constructor: removes unnecessary values
+piecewise :: Eq v => v -> Map k v -> Piecewise k v
+piecewise a = fromAscList a . M.toList
+
 instance (Show k, Show v) => Show (Piecewise k v) where
   showsPrec d (Piecewise k m) =
     ("fromAscList " <>) .
@@ -88,9 +92,6 @@ lessThanOrEqual = lessThan . succ
 values :: Piecewise k v -> [v]
 values (Piecewise x m) = x : M.elems m
 
-instance (Eq k) => Functor (Piecewise k) where
-  fmap p (Piecewise a f) = fromAscListUnsafe (p a) (fmap p <$> M.toList f)
-
 instance Foldable (Piecewise k) where
   foldMap f (Piecewise a m) = f a <> foldMap f m
 
@@ -104,9 +105,13 @@ instance Ord k => Mapping k (Piecewise k) where
 
   isConst (Piecewise a f) = if M.null f then Just a else Nothing
 
-  mmap = fmap
+  mmap p (Piecewise a f) = piecewise (p a) (fmap p f)
 
-  mtraverse p (Piecewise a f) = liftA2 fromAscList (p a) (traverse (traverse p) $ M.toList f)
+  mmapInj p (Piecewise a f) = Piecewise (p a) (fmap p f)
+
+  mtraverse p (Piecewise a f) = liftA2 piecewise (p a) (traverse p f)
+
+  mtraverseInj p (Piecewise a f) = liftA2 Piecewise (p a) (traverse p f)
 
   merge p = let
 

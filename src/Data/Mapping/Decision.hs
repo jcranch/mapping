@@ -12,6 +12,9 @@
 
 -- TODO
 --
+--  * "Rebuild": add a decision tree to a builder (can be done quickly
+--    using addMap or similar, but that may not be obvious!)
+--
 --  * Stash away non-public functions (either with an explicit export
 --    list, or in a separate module, or both)
 --
@@ -57,9 +60,13 @@
 --
 --  * Monotonically renaming branches (Decision k m a v -> Decision k m b v)
 --
+--  * Nonmonotonic branch renaming
+--
 --  * Composition algorithm
 --
 --  * Optimisation by reordering
+--
+--  * Is there any use for a slow meld?
 
 -- | Decision diagrams, parametric in the mapping type for the decisions.
 --
@@ -78,29 +85,22 @@ import Control.Monad ((<=<))
 import Control.Monad.State (State, state, runState, evalState)
 import Data.Algebra.Boolean (Boolean(..), AllB(..))
 import Data.Bifunctor (first, bimap)
-import Data.Bijection (Bij)
-import qualified Data.Bijection as B
-import Data.Bits (complement)
 import Data.Bool (bool)
-import Data.Foldable (foldrM, toList)
+import Data.Foldable (toList)
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
-import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap as IM
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IS
 import Data.Ord (comparing)
-import Data.Sequence (Seq, (|>))
+import Data.Sequence (Seq)
 import qualified Data.Sequence as Q
 import Data.Set (Set)
-import qualified Data.Set as S
-import qualified Data.Map.Internal as MI
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Map.Merge.Strict as M
 import Data.Mapping.Util (insertIfAbsent)
-import Data.Traversable (mapAccumL)
 import Data.Tuple (swap)
 import Formatting ((%))
 import qualified Formatting as F
@@ -108,22 +108,32 @@ import qualified Formatting as F
 import Data.Mapping
 
 
--- | A helper function: monadically update a map left-to-right, with
--- access to the part of the map already created
-assembleM :: Monad m => (k -> u -> Map k v -> m v) -> Map k u -> m (Map k v)
-assembleM f = let
-  go a MI.Tip = pure a
-  go a (MI.Bin _ k v l r) = do
-    a' <- go a l
-    v' <- f k v a'
-    go (MI.link k v' a' M.empty) r
-  in go M.empty
-
-assemble :: (k -> u -> Map k v -> v) -> Map k u -> Map k v
+assemble :: Ord k => (k -> u -> Map k v -> v) -> Map k u -> Map k v
 assemble f = let
-  g k x = Identity . f k x
-  in runIdentity . assembleM g
+  inner d t = case M.minViewWithKey t of
+    Nothing -> d
+    Just ((k,u),t') -> inner (M.insert k (f k u d) d) t'
+  in inner M.empty
 
+assembleInt :: (Int -> u -> IntMap v -> v) -> IntMap u -> IntMap v
+assembleInt f = let
+  inner d t = case IM.minViewWithKey t of
+    Nothing -> d
+    Just ((k,u),t') -> inner (IM.insert k (f k u d) d) t'
+  in inner IM.empty
+
+{-
+-- | Thread an accumulating value through a map, but with access to
+-- the part already created
+assembleAccum :: Ord k => (k -> u -> Map k v -> a -> (a, v)) -> a -> Map k u -> (a, Map k v)
+assembleAccum f = let
+  inner d a t = case M.minViewWithKey t of
+    Nothing -> (a, d)
+    Just ((k,u),t') -> let
+      (b,v) = f k u d a
+      in inner (M.insert k v d) b t'
+  in inner M.empty
+-}
 
 
 -- | We assume that the serial numbers are all distinct within each
@@ -195,6 +205,7 @@ addLeaf x b@(Builder m) = let
     Just m' -> Builder m'
   in (Node i (Leaf x), b')
 
+-- | An atomic addition: assumes all nodes linked to are already in
 addBranch :: (Mapping k m, Ord a, Ord v, forall x. Ord x => Ord (m x)) => a -> m (Node k m a v) -> Builder k m a v -> (Node k m a v, Builder k m a v)
 addBranch c n b@(Builder m) = case isConst n of
   Just x -> (x, b)
@@ -575,7 +586,7 @@ manipulate :: (Mapping l n,
 manipulate p q (Decision (Node i n)) = Decision . (IM.! i) . fst $ addManipulate p q (IM.singleton i n) emptyBuilder
 
 
-addTraverse :: (Mapping k m,
+addFastTraverse :: (Mapping k m,
                 Traversable f,
                 Applicative f,
                 forall x. Ord x => Ord (m x),
@@ -585,7 +596,7 @@ addTraverse :: (Mapping k m,
             -> IntMap (Node' k m a v)
             -> Builder k m a w
             -> (IntMap (f (Node k m a w)), Builder k m a w)
-addTraverse p = addTransform p (const id)
+addFastTraverse p = addTransform p (const id)
 
 
 -- | Less general than mtraverse because of the requirement of
@@ -599,7 +610,7 @@ fastTraverse :: (Mapping k m,
              => (v -> f w)
              -> Decision k m a v
              -> f (Decision k m a w)
-fastTraverse p (Decision (Node i n)) = fmap Decision . (IM.! i) . fst $ addTraverse p (IM.singleton i n) emptyBuilder
+fastTraverse p (Decision (Node i n)) = fmap Decision . (IM.! i) . fst $ addFastTraverse p (IM.singleton i n) emptyBuilder
 
 
 addMap :: (Mapping k m,
@@ -610,7 +621,7 @@ addMap :: (Mapping k m,
        -> IntMap (Node' k m a v)
        -> Builder k m a w
        -> (IntMap (Node k m a w), Builder k m a w)
-addMap p m = first (fmap runIdentity) . addTraverse (Identity . p) m
+addMap p m = first (fmap runIdentity) . addFastTraverse (Identity . p) m
 
 
 addRestrict :: (forall x. Ord x => Ord (m x), Ord v, Ord a, Mapping k m) => (a -> Maybe k) -> IntMap (Node' k m a v) -> Builder k m a v -> (IntMap (Node k m a v), Builder k m a v)
@@ -633,8 +644,7 @@ restrict f (Decision (Node i n)) = Decision . (IM.! i) . fst $ addRestrict f (IM
 -- | Find all the structure required for a merge. This is unlikely to
 -- be of interest to the casual user.
 completeMergeDownstream :: forall f j k l m n o a u v w.
-                           (Applicative f,
-                            Mapping j m,
+                           (Mapping j m,
                             Mapping k n,
                             Mapping l o,
                             forall x. Ord x => Ord (o x),
@@ -647,7 +657,7 @@ completeMergeDownstream :: forall f j k l m n o a u v w.
 completeMergeDownstream p q = let
 
   enqueue u (Node i m, Node j n) = M.insert (i,j) (m,n) u
-  
+
   inner :: Map (Int, Int) (Either (f w) (a, o (Int, Int)))
         -> Map (Int, Int) (Node' j m a u, Node' k n a v)
         -> Map (Int, Int) (Either (f w) (a, o (Int, Int)))
@@ -671,7 +681,7 @@ completeMergeDownstream p q = let
         EQ -> (c, q c (,) m n)
       done' = M.insert (i,j) (Right (a, mmap (bimap serial serial) o)) done
       in inner done' $ foldl enqueue todo' o
-  
+
   in inner M.empty
 
 
@@ -758,7 +768,7 @@ meld :: forall j k l m n o a u v w.
      -> Decision l o a w
 meld p q (Decision (Node i a)) (Decision (Node j b)) = Decision . (M.! (i,j)) . fst $ addMeld p q (M.singleton (i,j) (a,b)) emptyBuilder
 
-addMergeA :: forall f k m a u v w.
+addFastMergeA :: forall f k m a u v w.
              (Traversable f,
               Applicative f,
               Mapping k m,
@@ -769,7 +779,7 @@ addMergeA :: forall f k m a u v w.
           -> Map (Int, Int) (Node' k m a u, Node' k m a v)
           -> Builder k m a w
           -> (Map (Int, Int) (f (Node k m a w)), Builder k m a w)
-addMergeA p = addMeldA p (\_ -> merge)
+addFastMergeA p = addMeldA p (\_ -> merge)
 
 -- | You should use this, rather than `mergeA`, when possible (that
 -- is, when valued in a `Traversable` functor); it reuses nodes more.
@@ -784,7 +794,7 @@ fastMergeA :: forall f k m a u v w.
            -> Decision k m a u
            -> Decision k m a v
            -> f (Decision k m a w)
-fastMergeA p (Decision (Node i a)) (Decision (Node j b)) = fmap Decision . (M.! (i,j)) . fst $ addMergeA p (M.singleton (i,j) (a,b)) emptyBuilder
+fastMergeA p (Decision (Node i a)) (Decision (Node j b)) = fmap Decision . (M.! (i,j)) . fst $ addFastMergeA p (M.singleton (i,j) (a,b)) emptyBuilder
 
 addMerge :: forall k m a u v w.
             (Mapping k m,
@@ -1033,6 +1043,44 @@ instance (Mapping k m,
 
 -}
 
+
+addSlowTraverse :: forall f k m a v w.
+                   (Mapping k m,
+                    Applicative f,
+                    forall x. Ord x => Ord (m x),
+                    Ord a,
+                    Ord w)
+                => (v -> f w)
+                -> IntMap (Node' k m a v)
+                -> IntMap (f (State (Builder k m a w) (Node k m a w)))
+addSlowTraverse p = let
+  f :: Node' k m a v
+    -> IntMap (f (State (Builder k m a w) (Node k m a w)))
+    -> f (State (Builder k m a w) (Node k m a w))
+  f (Leaf x) _ = state . addLeaf <$> p x
+  f (Branch c n) m = fmap (state . addBranch c <=< mtraverse id) $ mtraverseInj ((m IM.!) . serial) n
+  in assembleInt (const f) . completeDownstream
+
+
+
+addSlowMergeA :: forall f k m a u v w.
+                 (Mapping k m,
+                  Applicative f,
+                  forall x. Ord x => Ord (m x),
+                  Ord a,
+                  Ord w)
+              => (u -> v -> f w)
+              -> Map (Int, Int) (Node' k m a u, Node' k m a v)
+              -> Map (Int, Int) (f (State (Builder k m a w) (Node k m a w)))
+addSlowMergeA p = let
+  f :: Either (f w) (a, m (Int, Int))
+    -> Map (Int, Int) (f (State (Builder k m a w) (Node k m a w)))
+    -> f (State (Builder k m a w) (Node k m a w))
+  f (Left u) _ = fmap (state . addLeaf) u
+  f (Right (c, n)) m = fmap (state . addBranch c <=< mtraverse id) $ mtraverseInj (m M.!) n
+  in assemble (const f) . completeMergeDownstream p (const merge)
+
+
 instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) (Decision k m a) where
 
   cst = Decision . Node 0 . Leaf
@@ -1048,10 +1096,24 @@ instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) 
 
   mmap p (Decision (Node i n)) = Decision . (IM.! i) . fst $ addMap p (IM.singleton i n) emptyBuilder
 
-  -- | Use `fastTraverse` where possible instead
-  mtraverse p (Decision (Node i n)) = let
+  mmapInj p = let
+    f (Leaf x) _ = Leaf $ p x
+    f (Branch c n) m = let
+      h (Node i _) = Node i (m IM.! i)
+      in Branch c $ mmapInj h n
+    go (Decision (Node i n)) = Decision . Node i . (IM.! i) . assembleInt (const f) . completeDownstream $ IM.singleton i n
+    in go
 
-    in _ . completeDownstream $ IM.singleton i n
+  -- | Use `fastTraverse` where possible instead
+  mtraverse p (Decision (Node i n)) = fmap (Decision . flip evalState emptyBuilder) . (IM.! i) $ addSlowTraverse p (IM.singleton i n)
+
+  mtraverseInj p = let
+    f (Leaf x) _ = Leaf <$> p x
+    f (Branch c n) m = let
+      h (Node i _) = Node i <$> (m IM.! i)
+      in Branch c <$> mtraverseInj h n
+    go (Decision (Node i n)) = fmap (Decision . Node i) . (IM.! i) . assembleInt (const f) . completeDownstream $ IM.singleton i n
+    in go
 
   merge p (Decision (Node i m)) (Decision (Node j n)) = Decision . (M.! (i,j)) . fst $ addMerge p (M.singleton (i,j) (m,n)) emptyBuilder
 
@@ -1063,14 +1125,7 @@ instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) 
          -> Decision k m a u
          -> Decision k m a v
          -> f (Decision k m a w)
-  mergeA p (Decision (Node i m)) (Decision (Node j n)) = let
-    -- What's this function supposed to do?
-    f :: Either (f w) (a, m (Int, Int))
-      -> Map (Int, Int) (f (State (Builder k m a w) (Node k m a w)))
-      -> f (State (Builder k m a w) (Node k m a w))
-    f (Left x) _ = state . addLeaf <$> x
-    f (Right (c, m)) u = _ $ mtraverse (_ . (u M.!)) m
-    in fmap (Decision . flip evalState emptyBuilder) . (M.! (i,j)) . assemble (const f) . completeMergeDownstream p (const merge) $ M.singleton (i,j) (m,n)
+  mergeA p (Decision (Node i m)) (Decision (Node j n)) = fmap (Decision . flip evalState emptyBuilder) . (M.! (i,j)) $ addSlowMergeA p (M.singleton (i,j) (m,n))
 
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
@@ -1084,7 +1139,6 @@ deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
   instance (Mapping k m, forall x. Ord x => Ord (m x), Ord a, Ord v, Boolean v) => Boolean (Decision k m a v)
-
 
 
 instance (Mapping k m, forall x. Ord x => Ord (m x), Ord a, Eq v) => Eq (Decision k m a v) where
