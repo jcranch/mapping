@@ -12,8 +12,18 @@
 
 -- TODO
 --
---  * Streamline the many functions we have for recursing over trees
---    etc
+--  * Explain recursion. Three levels:
+--
+--    - process-based, for complete control over the recursion (eg,
+--      searching for the best element with a certain property);
+--
+--    - thin wrappers for the slow traverse/merge (and meld if it's
+--      written);
+--
+--    - quick full recursors;
+--
+--  * Write a slow meld (probably can make the slow merge a thin
+--    wrapper over it)
 --
 --  * "Rebuild": add a decision tree to a builder (can be done quickly
 --    using addMap or similar, but that may not be obvious!)
@@ -27,7 +37,7 @@
 --
 --  * Check for detailed comments in code
 --
---  * Remove outdated, commented-out stuff
+--  * Remove outdated and commented-out stuff
 --
 --  * Ensure we have a full set of builder/decision functionality
 --
@@ -59,7 +69,7 @@
 --     - finding random elements
 --    (as examples of the more general functions, already coded, I hope)
 --
---  * Documentation
+--  * Get the documentation nice
 --
 --  * Monotonically renaming branches (Decision k m a v -> Decision k m b v)
 --
@@ -68,8 +78,6 @@
 --  * Composition algorithm
 --
 --  * Optimisation by reordering
---
---  * Is there any use for a slow meld?
 
 -- | Decision diagrams, parametric in the mapping type for the decisions.
 --
