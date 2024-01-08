@@ -246,20 +246,50 @@ completeDownstream = let
   in inner IM.empty
 
 
+-- | A concept to facilitate cached computations: a process can either
+-- produce an answer or make a request
+data Process r a = Answer a | Request r (a -> Process r a)
+
+
+-- | A very general, data-sharing recursive function
+--
+-- This is written with the indirection given by `Process` so as to
+-- avoid computing the values for all nodes downstream of a given one.
+generalRecurse :: (Node' k m a v -> Process (Node k m a v) c)
+               -> IntMap (Node' k m a v)
+               -> IntMap c
+generalRecurse p = let
+
+  unpause done paused = case IM.minViewWithKey paused of
+    Nothing -> done
+    Just ((i,(j,f)),paused') -> process done paused' i (f (done IM.! j))
+
+  process done paused i (Answer x) = unpause (IM.insert i x done) paused
+  process done paused i (Request (Node j n) f) = case done IM.!? j of
+    Just x  -> process done paused i (f x)
+    Nothing -> process done (IM.insert i (j,f) paused) j (p n)
+
+  start done todo = case IM.minViewWithKey todo of
+    Nothing -> done
+    Just ((i,x),todo') -> start (process done IM.empty i (p x)) todo'
+
+  in start IM.empty
+
+
 -- | A general, data-sharing recursive function.
 --
 -- To calculate the value on a node, it first calculates all values
 -- downstream of it; this can sometimes be inefficient.
-genRecurse :: (Mapping k m,
-               Ord c)
-           => (v -> c)
-              -- ^ What to do on a value
-           -> (a -> m c -> c)
-              -- ^ What do do on a node
-           -> IntMap (Node' k m a v)
-              -- ^ Nodes to work on
-           -> IntMap c
-genRecurse p q m0 = let
+specialRecurse :: (Mapping k m,
+                   Ord c)
+               => (v -> c)
+                  -- ^ What to do on a value
+               -> (a -> m c -> c)
+                  -- ^ What to do on a node
+               -> IntMap (Node' k m a v)
+                  -- ^ Nodes to work on
+              -> IntMap c
+specialRecurse p q m0 = let
 
   -- TODO Check this works: it depends on strict maps behaving lazily:
   -- keys can be forced in order. If this fails could use lazy lists
@@ -292,9 +322,9 @@ genRecurse p q = let
   in phase1 IM.empty
 -}
 
--- | A general recursive function on a decision
+-- | A recursive function on a decision
 --
--- It calls genRecurse, and hence calculates all values downstream of
+-- It calls specialRecurse, and hence calculates all values downstream of
 -- any particular value.
 decisionRecurse :: (Mapping k m,
                     Ord c)
@@ -305,7 +335,7 @@ decisionRecurse :: (Mapping k m,
                 -> Decision k m a v
                 -- ^ Input decision
                 -> c
-decisionRecurse p q (Decision (Node i d)) = genRecurse p q (IM.singleton i d) IM.! i
+decisionRecurse p q (Decision (Node i d)) = specialRecurse p q (IM.singleton i d) IM.! i
 
 
 -- | A general counting function
@@ -856,32 +886,6 @@ combine :: (b -> Decision k m a l) -> Decision l n b v -> Decision k m a v
 combine = _
 -}
 
-{-
-instance (Mapping k m,
-          Neighbourly m,
-          Ord a,
-          Ord (m Int))
-       => Neighbourly (Decision k m a) where
-  neighbours = _
--}
-
-{-
--  neighbours (Decision (Base l m) s) = let
--    f v (Node _ n) = let
--      here = let
--        b = Base l m
--        e (i, j) = S.filter (uncurry (/=)) $ mutualValues (Decision b i) (Decision b j)
--        in foldMap e $ neighbours n
--      there = let
--        g i
--          | i < 0     = mempty
--          | otherwise = Q.index v i
--        in foldMap g n
--      in v |> (here <> there)
--    in Q.index (foldl f Q.empty m) s
--}
-
-
 
 addSlowTraverse :: forall f k m a v w.
                    (Mapping k m,
@@ -995,3 +999,76 @@ debugShow (Decision (Node i n)) = let
   g (Leaf x) = "Leaf " <> showsPrec 11 x ""
   g (Branch a m) = "Branch " <> showsPrec 11 a " " <> showsPrec 11 (mmap serial m) ""
   in unlines . ifoldMap f . completeDownstream $ IM.singleton i n
+
+
+cache :: Ord k => (k -> v) -> k -> State (Map k v) v
+cache f k = let
+  r m = case m M.!? k of
+    Just v -> (v, m)
+    Nothing -> let
+      v = f k
+      in (v, M.insert k v m)
+  in state r
+
+processCache :: Ord k => (k -> Process k v) -> k -> State (Map k v) v
+processCache f = let
+  compute k m (Answer v) = (v, M.insert k v m)
+  compute k m (Request k' c) = let
+    (v', m') = check k' m
+    in compute k m' (c v')
+  check k m = case m M.!? k of
+    Just v -> (v, m)
+    Nothing -> compute k m (f k)
+  in state . check
+
+processCacheHashed :: Ord r => (k -> r) -> (k -> Process k v) -> k -> State (Map r v) v
+processCacheHashed h f = let
+  compute r m (Answer v) = (v, M.insert r v m)
+  compute r m (Request k c) = let
+    (v', m') = check k m
+    in compute r m' (c v')
+  check k m = let
+    r = h k
+    in case m M.!? r of
+      Just v -> (v, m)
+      Nothing -> compute r m (f k)
+  in state . check
+
+computeNeighbours :: forall k m a v c.
+                     _
+                  -> IntMap c
+computeNeighbours = let
+
+  addCommonValues :: (Node k m a v, Node k m a v)
+                  -> State (Map (Int, Int) [(v, v)]) [(v, v)]
+  addCommonValues = let
+    h (Node i _, Node j _) = (i,j)
+    f (Node i u, Node j v) = case (u,v) of
+      (Leaf x, Leaf y) -> Answer [(x,y)]
+      (Branch c m, Leaf y) -> _
+      (Branch c m, Branch d n) -> case compare c d of
+    in processCacheHashed h f
+
+  in _
+  {-
+
+  addCommonValues :: (Node k m a v, Node k m a v)
+                  -> State (Map (Int, Int) [(v, v)]) [(v, v)]
+  addCommonValues (Node i m, Node j n) e = case e M.!? (i,j) of
+    Nothing -> 
+
+  inner :: Map (Int, Int) [(v, v)]
+           -- ^ Common values taken by the two nodes listed
+        -> IntMap c
+           -- ^ Neighbours already calculated
+        -> _
+        -> IntMap c
+
+  in _
+
+
+instance (Mapping k m,
+          Neighbourly m d)
+       => Neighbourly (Decision k m a) (a, d) where
+  foldmapNeighbours = _
+-}

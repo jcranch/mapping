@@ -10,13 +10,12 @@ module Data.Mapping.MapWithDefault where
 import Control.Applicative (liftA2)
 #endif
 import Data.Algebra.Boolean
-import Data.List (foldl', groupBy)
+import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Map.Merge.Strict as M
 import Data.Mapping
 import Data.Maybe (fromMaybe, mapMaybe)
-import qualified Data.Set as S
 import Data.Mapping.Util
 
 
@@ -80,15 +79,29 @@ instance Ord k => Mapping k (MapWithDefault k) where
     combine = M.merge l r t
     in MapWithDefault c $ combine f g
 
--- | This instance assumes that k is unbounded
+-- | This is one of several possible concepts of neighbours for a
+-- `MapWithDefault`. We assume that @k@ is an unbounded and an `Enum`.
 --
--- It would be possible to do something valid in greater generality (for
--- example, a MaybeBounded class), which might be a good idea.
-instance (Enum k, Eq k) => Neighbourly (MapWithDefault k) where
-  neighbours (MapWithDefault a f) = let
-    c (x,_) (y,_) = succ x == y
-    d l = zip ([a] <> l) (l <> [a])
-    in S.fromList . concatMap (d . fmap snd) . groupBy c $ M.toAscList f
+-- The associated data is the point at which the new value begins, so
+-- > foldmapNeighbours (\d x y -> [(d,x,y)]) (fromList "" [(1,"a"),(2,"a"),(4,"b"),(5,"c")])
+-- > [(1,"","a"), (3,"a",""), (4,"","b"), (5,"b","c"), (6,"c","")]
+--
+-- We could get alternative notions if @k@ had bounds, or if it was
+-- continuous (like `Float`, for example).
+instance (Enum k, Eq k) => Neighbourly (MapWithDefault k) k where
+  foldmapNeighbours p  = let
+    inner a = let
+      free x []        = x
+      free x ((r,u):l) = justHad (x <> p r a u) r u l
+      justHad x r u []        = x <> p (succ r) u a
+      justHad x r u ((s,v):l)
+        | succ r /= s         = justHad (x <> p (succ r) u a <> p s a v) s v l
+        | u == v              = justHad x s v l
+        | otherwise           = justHad (x <> p s u v) s v l
+      in free
+    go (MapWithDefault a f) = inner a mempty $ M.toList f
+    in go
+
 
 deriving via (AlgebraWrapper k (MapWithDefault k) b)
   instance (Ord k, Ord b, Semigroup b) => Semigroup (MapWithDefault k b)

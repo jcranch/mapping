@@ -83,10 +83,14 @@ mutualValues = pairMappings $ curry S.singleton
 
 
 
--- | A class representing data structures which have a concept of neighbouring
--- values
-class Neighbourly m where
-  neighbours :: Ord v => m v -> Set (v, v)
+-- | A class representing data structures which have a concept of
+-- neighbouring values; the type d represents some information about
+-- the interface between these values
+class Neighbourly m d | m -> d where
+  foldmapNeighbours :: (Monoid a, Ord v) => (d -> v -> v -> a) -> m v -> a
+
+neighbours :: (Neighbourly m d, Ord v) => m v -> Set (v, v)
+neighbours = foldmapNeighbours (\_ x y -> S.singleton (x,y))
 
 
 -- | A wrapper for representing pointwise algebraic structures on a Mapping
@@ -137,8 +141,8 @@ instance Mapping k (Constant k) where
   merge f (Constant x) (Constant y) = Constant $ f x y
   mergeA f (Constant x) (Constant y) = Constant <$> f x y
 
-instance Neighbourly (Constant k) where
-  neighbours = const S.empty
+instance Neighbourly (Constant k) Void where
+  foldmapNeighbours = const mempty
 
 -- Haven't been able to make deriving via work for this one
 instance (Semigroup v) => Semigroup (Constant k v) where
@@ -209,10 +213,10 @@ instance Mapping Bool OnBool where
   mergeA h (OnBool x1 y1) (OnBool x2 y2) = liftA2 OnBool (h x1 x2) (h y1 y2)
   merge h (OnBool x1 y1) (OnBool x2 y2) = OnBool (h x1 x2) (h y1 y2)
 
-instance Neighbourly OnBool where
-  neighbours (OnBool x y)
-    | x == y    = S.empty
-    | otherwise = S.singleton (x, y)
+instance Neighbourly OnBool () where
+  foldmapNeighbours f (OnBool x y)
+    | x == y    = mempty
+    | otherwise = f () x y
 
 deriving via (AlgebraWrapper Bool OnBool a)
   instance (Ord a, Semigroup a) => Semigroup (OnBool a)

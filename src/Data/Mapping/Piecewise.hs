@@ -14,7 +14,6 @@ import Data.Algebra.Boolean
 import qualified Data.Map.Internal as MI
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import qualified Data.Set as S
 import Data.Mapping
 
 
@@ -171,10 +170,12 @@ instance Ord k => Mapping k (Piecewise k) where
 
     in run
 
-instance Neighbourly (Piecewise k) where
-  neighbours m = let
-    v = values m
-    in S.fromList $ zip v (tail v)
+instance Neighbourly (Piecewise k) k where
+  foldmapNeighbours p  = let
+    inner x _ []        = x
+    inner x u ((k,v):l) = inner (x <> p k u v) v l
+    go (Piecewise a f) = inner mempty a $ M.toList f
+    in go
 
 deriving via (AlgebraWrapper k (Piecewise k) b)
   instance (Ord k, Ord b, Semigroup b) => Semigroup (Piecewise k b)
