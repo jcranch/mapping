@@ -12,11 +12,14 @@
 
 -- TODO
 --
+--  * Streamline the many functions we have for recursing over trees
+--    etc
+--
 --  * "Rebuild": add a decision tree to a builder (can be done quickly
 --    using addMap or similar, but that may not be obvious!)
 --
 --  * Stash away non-public functions (either with an explicit export
---    list, or in a separate module, or both)
+--    list, or in a separate module)
 --
 --  * Neighbours
 --
@@ -336,6 +339,66 @@ decisionRecurse :: (Mapping k m,
                 -- ^ Input decision
                 -> c
 decisionRecurse p q (Decision (Node i d)) = specialRecurse p q (IM.singleton i d) IM.! i
+
+
+{-
+cache :: Ord k => (k -> v) -> k -> State (Map k v) v
+cache f k = let
+  r m = case m M.!? k of
+    Just v -> (v, m)
+    Nothing -> let
+      v = f k
+      in (v, M.insert k v m)
+  in state r
+
+processCache :: Ord k => (k -> Process k v) -> k -> State (Map k v) v
+processCache f = let
+  compute k m (Answer v) = (v, M.insert k v m)
+  compute k m (Request k' c) = let
+    (v', m') = check k' m
+    in compute k m' (c v')
+  check k m = case m M.!? k of
+    Just v -> (v, m)
+    Nothing -> compute k m (f k)
+  in state . check
+
+processCacheHashed :: Ord r => (k -> r) -> (k -> Process k v) -> k -> State (Map r v) v
+processCacheHashed h f = let
+  compute r m (Answer v) = (v, M.insert r v m)
+  compute r m (Request k c) = let
+    (v', m') = check k m
+    in compute r m' (c v')
+  check k m = let
+    r = h k
+    in case m M.!? r of
+      Just v -> (v, m)
+      Nothing -> compute r m (f k)
+  in state . check
+-}
+
+
+
+getInvariant :: (Mapping k m,
+                 Ord c)
+             => (v -> c)
+                -- ^ What to do on a value
+             -> (a -> m c -> c)
+                -- ^ What do do on a node
+             -> Node k m a v
+             -> State (IntMap c) c
+getInvariant p q 
+
+
+getPairing :: (Mapping k m,
+               Ord c)
+           => (v -> v -> c)
+              -- ^ What to do on a pair of values
+           -> (a -> m c -> m c -> c)
+              -- ^ What to do on a branching
+           -> Node k m a v
+           -> Node k m a v
+           -> State (Map (Int, Int) c) c
+getPairing   
 
 
 -- | A general counting function
@@ -1001,38 +1064,6 @@ debugShow (Decision (Node i n)) = let
   in unlines . ifoldMap f . completeDownstream $ IM.singleton i n
 
 
-cache :: Ord k => (k -> v) -> k -> State (Map k v) v
-cache f k = let
-  r m = case m M.!? k of
-    Just v -> (v, m)
-    Nothing -> let
-      v = f k
-      in (v, M.insert k v m)
-  in state r
-
-processCache :: Ord k => (k -> Process k v) -> k -> State (Map k v) v
-processCache f = let
-  compute k m (Answer v) = (v, M.insert k v m)
-  compute k m (Request k' c) = let
-    (v', m') = check k' m
-    in compute k m' (c v')
-  check k m = case m M.!? k of
-    Just v -> (v, m)
-    Nothing -> compute k m (f k)
-  in state . check
-
-processCacheHashed :: Ord r => (k -> r) -> (k -> Process k v) -> k -> State (Map r v) v
-processCacheHashed h f = let
-  compute r m (Answer v) = (v, M.insert r v m)
-  compute r m (Request k c) = let
-    (v', m') = check k m
-    in compute r m' (c v')
-  check k m = let
-    r = h k
-    in case m M.!? r of
-      Just v -> (v, m)
-      Nothing -> compute r m (f k)
-  in state . check
 
 computeNeighbours :: forall k m a v c.
                      _
