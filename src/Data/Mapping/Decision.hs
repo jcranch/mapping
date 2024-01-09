@@ -17,12 +17,12 @@
 --    - process-based, for complete control over the recursion (eg,
 --      searching for the best element with a certain property);
 --
---    - thin wrappers for the slow traverse/merge (and meld if it's
+--    - thin wrappers for the unshared traverse/merge (and meld if it's
 --      written);
 --
 --    - quick full recursors;
 --
---  * Write a slow meld (probably can make the slow merge a thin
+--  * Write a unshared meld (probably can make the unshared merge a thin
 --    wrapper over it)
 --
 --  * "Rebuild": add a decision tree to a builder (can be done quickly
@@ -394,7 +394,7 @@ getInvariant :: (Mapping k m,
                 -- ^ What do do on a node
              -> Node k m a v
              -> State (IntMap c) c
-getInvariant p q 
+getInvariant p q = _
 
 
 getPairing :: (Mapping k m,
@@ -406,7 +406,7 @@ getPairing :: (Mapping k m,
            -> Node k m a v
            -> Node k m a v
            -> State (Map (Int, Int) c) c
-getPairing   
+getPairing p q = _
 
 
 -- | A general counting function
@@ -687,7 +687,7 @@ manipulate :: (Mapping l n,
 manipulate p q (Decision (Node i n)) = Decision . (IM.! i) . fst $ addManipulate p q (IM.singleton i n) emptyBuilder
 
 
-addFastTraverse :: (Mapping k m,
+addSharedTraverse :: (Mapping k m,
                 Traversable f,
                 Applicative f,
                 forall x. Ord x => Ord (m x),
@@ -697,12 +697,12 @@ addFastTraverse :: (Mapping k m,
             -> IntMap (Node' k m a v)
             -> Builder k m a w
             -> (IntMap (f (Node k m a w)), Builder k m a w)
-addFastTraverse p = addTransform p (const id)
+addSharedTraverse p = addTransform p (const id)
 
 
 -- | Less general than mtraverse because of the requirement of
 -- traversability of `f`, but more efficient (in time and space).
-fastTraverse :: (Mapping k m,
+sharedTraverse :: (Mapping k m,
                  Traversable f,
                  Applicative f,
                  forall x. Ord x => Ord (m x),
@@ -711,7 +711,7 @@ fastTraverse :: (Mapping k m,
              => (v -> f w)
              -> Decision k m a v
              -> f (Decision k m a w)
-fastTraverse p (Decision (Node i n)) = fmap Decision . (IM.! i) . fst $ addFastTraverse p (IM.singleton i n) emptyBuilder
+sharedTraverse p (Decision (Node i n)) = fmap Decision . (IM.! i) . fst $ addSharedTraverse p (IM.singleton i n) emptyBuilder
 
 
 addMap :: (Mapping k m,
@@ -722,7 +722,7 @@ addMap :: (Mapping k m,
        -> IntMap (Node' k m a v)
        -> Builder k m a w
        -> (IntMap (Node k m a w), Builder k m a w)
-addMap p m = first (fmap runIdentity) . addFastTraverse (Identity . p) m
+addMap p m = first (fmap runIdentity) . addSharedTraverse (Identity . p) m
 
 
 addRestrict :: (forall x. Ord x => Ord (m x), Ord v, Ord a, Mapping k m) => (a -> Maybe k) -> IntMap (Node' k m a v) -> Builder k m a v -> (IntMap (Node k m a v), Builder k m a v)
@@ -867,7 +867,7 @@ meld :: forall j k l m n o a u v w.
      -> Decision l o a w
 meld p q (Decision (Node i a)) (Decision (Node j b)) = Decision . (M.! (i,j)) . fst $ addMeld p q (M.singleton (i,j) (a,b)) emptyBuilder
 
-addFastMergeA :: forall f k m a u v w.
+addSharedMergeA :: forall f k m a u v w.
              (Traversable f,
               Applicative f,
               Mapping k m,
@@ -878,11 +878,11 @@ addFastMergeA :: forall f k m a u v w.
           -> Map (Int, Int) (Node' k m a u, Node' k m a v)
           -> Builder k m a w
           -> (Map (Int, Int) (f (Node k m a w)), Builder k m a w)
-addFastMergeA p = addMeldA p (\_ -> merge)
+addSharedMergeA p = addMeldA p (\_ -> merge)
 
 -- | You should use this, rather than `mergeA`, when possible (that
 -- is, when valued in a `Traversable` functor); it reuses nodes more.
-fastMergeA :: forall f k m a u v w.
+sharedMergeA :: forall f k m a u v w.
               (Traversable f,
                Applicative f,
                Mapping k m,
@@ -893,7 +893,7 @@ fastMergeA :: forall f k m a u v w.
            -> Decision k m a u
            -> Decision k m a v
            -> f (Decision k m a w)
-fastMergeA p (Decision (Node i a)) (Decision (Node j b)) = fmap Decision . (M.! (i,j)) . fst $ addFastMergeA p (M.singleton (i,j) (a,b)) emptyBuilder
+sharedMergeA p (Decision (Node i a)) (Decision (Node j b)) = fmap Decision . (M.! (i,j)) . fst $ addSharedMergeA p (M.singleton (i,j) (a,b)) emptyBuilder
 
 addMerge :: forall k m a u v w.
             (Mapping k m,
@@ -958,7 +958,7 @@ combine = _
 -}
 
 
-addSlowTraverse :: forall f k m a v w.
+addUnsharedTraverse :: forall f k m a v w.
                    (Mapping k m,
                     Applicative f,
                     forall x. Ord x => Ord (m x),
@@ -967,7 +967,7 @@ addSlowTraverse :: forall f k m a v w.
                 => (v -> f w)
                 -> IntMap (Node' k m a v)
                 -> IntMap (f (State (Builder k m a w) (Node k m a w)))
-addSlowTraverse p = let
+addUnsharedTraverse p = let
   f :: Node' k m a v
     -> IntMap (f (State (Builder k m a w) (Node k m a w)))
     -> f (State (Builder k m a w) (Node k m a w))
@@ -976,8 +976,8 @@ addSlowTraverse p = let
   in assembleInt (const f) . completeDownstream
 
 
-
-addSlowMergeA :: forall f k m a u v w.
+-- TODO Write in terms of addUnsharedMeldA?
+addUnsharedMergeA :: forall f k m a u v w.
                  (Mapping k m,
                   Applicative f,
                   forall x. Ord x => Ord (m x),
@@ -986,13 +986,34 @@ addSlowMergeA :: forall f k m a u v w.
               => (u -> v -> f w)
               -> Map (Int, Int) (Node' k m a u, Node' k m a v)
               -> Map (Int, Int) (f (State (Builder k m a w) (Node k m a w)))
-addSlowMergeA p = let
+addUnsharedMergeA p = let
   f :: Either (f w) (a, m (Int, Int))
     -> Map (Int, Int) (f (State (Builder k m a w) (Node k m a w)))
     -> f (State (Builder k m a w) (Node k m a w))
   f (Left u) _ = fmap (state . addLeaf) u
   f (Right (c, n)) m = fmap (state . addBranch c <=< mtraverse id) $ mtraverseInj (m M.!) n
   in assemble (const f) . completeMergeDownstream p (const merge)
+
+
+
+addUnsharedMeldA :: forall f j k l m n o a u v w.
+                (Mapping k m,
+                 Applicative f,
+                 forall x. Ord x => Ord (m x),
+                 Ord a,
+                 Ord w)
+             => (u -> v -> f w)
+             -> (forall x y z. Ord z => a -> (x -> y -> z) -> m x -> n y -> o z)
+             -> Map (Int, Int) (Node' j m a u, Node' k n a v)
+             -> Map (Int, Int) (f (State (Builder l o a w) (Node l o a w)))
+addUnsharedMeldA p q = let
+
+  in _
+
+
+-- TODO Write addUnsharedTransform
+
+-- TODO Write addUnsharedMeld
 
 
 instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) (Decision k m a) where
@@ -1018,20 +1039,29 @@ instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) 
     go (Decision (Node i n)) = Decision . Node i . (IM.! i) . assembleInt (const f) . completeDownstream $ IM.singleton i n
     in go
 
-  -- | Use `fastTraverse` where possible instead
-  mtraverse p (Decision (Node i n)) = fmap (Decision . flip evalState emptyBuilder) . (IM.! i) $ addSlowTraverse p (IM.singleton i n)
+  -- | Use `sharedTraverse` where possible instead
+  mtraverse p (Decision (Node i n)) = fmap (Decision . flip evalState emptyBuilder)
+    . (IM.! i)
+    $ addUnsharedTraverse p (IM.singleton i n)
 
   mtraverseInj p = let
     f (Leaf x) _ = Leaf <$> p x
     f (Branch c n) m = let
       h (Node i _) = Node i <$> (m IM.! i)
       in Branch c <$> mtraverseInj h n
-    go (Decision (Node i n)) = fmap (Decision . Node i) . (IM.! i) . assembleInt (const f) . completeDownstream $ IM.singleton i n
+    go (Decision (Node i n)) = fmap (Decision . Node i)
+      . (IM.! i)
+      . assembleInt (const f)
+      . completeDownstream
+      $ IM.singleton i n
     in go
 
-  merge p (Decision (Node i m)) (Decision (Node j n)) = Decision . (M.! (i,j)) . fst $ addMerge p (M.singleton (i,j) (m,n)) emptyBuilder
+  merge p (Decision (Node i m)) (Decision (Node j n)) = Decision
+    . (M.! (i,j))
+    . fst
+    $ addMerge p (M.singleton (i,j) (m,n)) emptyBuilder
 
-  -- | Use `fastMergeA` where possible instead
+  -- | Use `sharedMergeA` where possible instead
   mergeA :: forall f u v w.
             (Applicative f,
              Ord w)
@@ -1039,7 +1069,7 @@ instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) 
          -> Decision k m a u
          -> Decision k m a v
          -> f (Decision k m a w)
-  mergeA p (Decision (Node i m)) (Decision (Node j n)) = fmap (Decision . flip evalState emptyBuilder) . (M.! (i,j)) $ addSlowMergeA p (M.singleton (i,j) (m,n))
+  mergeA p (Decision (Node i m)) (Decision (Node j n)) = fmap (Decision . flip evalState emptyBuilder) . (M.! (i,j)) $ addUnsharedMergeA p (M.singleton (i,j) (m,n))
 
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
