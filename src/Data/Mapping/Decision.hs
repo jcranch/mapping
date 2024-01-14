@@ -385,7 +385,7 @@ processCacheHashed h f = let
 -}
 
 
-
+-- Use a transform
 getInvariant :: (Mapping k m,
                  Ord c)
              => (v -> c)
@@ -394,9 +394,11 @@ getInvariant :: (Mapping k m,
                 -- ^ What do do on a node
              -> Node k m a v
              -> State (IntMap c) c
-getInvariant p q = _
+getInvariant p q = let
+  in _
 
 
+-- Use a meld
 getPairing :: (Mapping k m,
                Ord c)
            => (v -> v -> c)
@@ -976,6 +978,21 @@ addUnsharedTraverse p = let
   in assembleInt (const f) . completeDownstream
 
 
+addUnsharedTransform :: forall f k l m n a v w.
+                        (Applicative f,
+                         Mapping l n,
+                         forall x. Ord x => Ord (n x),
+                         Ord a,
+                         Ord w)
+                     => (v -> f w)
+                     -> (forall x. a -> m x -> n x)
+                     -> IntMap (Node' k m a v)
+                     -> Builder l n a w
+                     -> IntMap (f (State (Builder l n a w) (Node l n a w)))
+addUnsharedTransform p q = let
+  in _
+
+
 -- TODO Write in terms of addUnsharedMeldA?
 addUnsharedMergeA :: forall f k m a u v w.
                  (Mapping k m,
@@ -996,24 +1013,34 @@ addUnsharedMergeA p = let
 
 
 
+addUnsharedMeld :: forall j k l m n o a u v w.
+                   (Mapping k m,
+                    forall x. Ord x => Ord (m x),
+                    Ord a,
+                    Ord w)
+                => (u -> v -> w)
+                -> (forall x y z. Ord z => a -> (x -> y -> z) -> m x -> n y -> o z)
+                -> Map (Int, Int) (Node' j m a u, Node' k n a v)
+                -> Map (Int, Int) (State (Builder l o a w) (Node l o a w))
+addUnsharedMeld p q = let
+  in _
+
+
+
 addUnsharedMeldA :: forall f j k l m n o a u v w.
-                (Mapping k m,
-                 Applicative f,
-                 forall x. Ord x => Ord (m x),
-                 Ord a,
-                 Ord w)
-             => (u -> v -> f w)
-             -> (forall x y z. Ord z => a -> (x -> y -> z) -> m x -> n y -> o z)
-             -> Map (Int, Int) (Node' j m a u, Node' k n a v)
-             -> Map (Int, Int) (f (State (Builder l o a w) (Node l o a w)))
+                    (Mapping k m,
+                     Applicative f,
+                     forall x. Ord x => Ord (m x),
+                     Ord a,
+                     Ord w)
+                 => (u -> v -> f w)
+                 -> (forall x y z. Ord z => a -> (x -> y -> z) -> m x -> n y -> o z)
+                 -> Map (Int, Int) (Node' j m a u, Node' k n a v)
+                 -> Map (Int, Int) (f (State (Builder l o a w) (Node l o a w)))
 addUnsharedMeldA p q = let
 
   in _
 
-
--- TODO Write addUnsharedTransform
-
--- TODO Write addUnsharedMeld
 
 
 instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) (Decision k m a) where
@@ -1069,7 +1096,10 @@ instance (Ord a, forall x. Ord x => Ord (m x), Mapping k m) => Mapping (a -> k) 
          -> Decision k m a u
          -> Decision k m a v
          -> f (Decision k m a w)
-  mergeA p (Decision (Node i m)) (Decision (Node j n)) = fmap (Decision . flip evalState emptyBuilder) . (M.! (i,j)) $ addUnsharedMergeA p (M.singleton (i,j) (m,n))
+  mergeA p (Decision (Node i m)) (Decision (Node j n)) =
+    fmap (Decision . flip evalState emptyBuilder)
+    . (M.! (i,j))
+    $ addUnsharedMergeA p (M.singleton (i,j) (m,n))
 
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
@@ -1103,6 +1133,7 @@ debugShow (Decision (Node i n)) = let
 
 
 
+{-
 computeNeighbours :: forall k m a v c.
                      _
                   -> IntMap c
@@ -1119,6 +1150,8 @@ computeNeighbours = let
     in processCacheHashed h f
 
   in _
+-}
+
   {-
 
   addCommonValues :: (Node k m a v, Node k m a v)
