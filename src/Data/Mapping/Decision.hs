@@ -12,6 +12,8 @@
 
 -- TODO
 --
+--  * Create incremental functions for transformations
+--
 --  * Explain recursion. Three levels:
 --
 --    - process-based, for complete control over the recursion (eg,
@@ -118,6 +120,9 @@ import qualified Formatting as F
 
 import Data.Mapping
 
+
+
+{-
 
 assemble :: Ord k => (k -> u -> Map k v -> v) -> Map k u -> Map k v
 assemble f = let
@@ -713,7 +718,10 @@ sharedTraverse :: (Mapping k m,
              => (v -> f w)
              -> Decision k m a v
              -> f (Decision k m a w)
-sharedTraverse p (Decision (Node i n)) = fmap Decision . (IM.! i) . fst $ addSharedTraverse p (IM.singleton i n) emptyBuilder
+sharedTraverse p (Decision (Node i n)) = fmap Decision
+  . (IM.! i)
+  . fst
+  $ addSharedTraverse p (IM.singleton i n) emptyBuilder
 
 
 addMap :: (Mapping k m,
@@ -741,7 +749,10 @@ addRestrict f m b = let
 -- >     Nothing -> f x
 -- >   in act d f'
 restrict :: (forall x. Ord x => Ord (m x), Ord v, Ord a, Mapping k m) => (a -> Maybe k) -> Decision k m a v -> Decision k m a v
-restrict f (Decision (Node i n)) = Decision . (IM.! i) . fst $ addRestrict f (IM.singleton i n) emptyBuilder
+restrict f (Decision (Node i n)) = Decision
+  . (IM.! i)
+  . fst
+  $ addRestrict f (IM.singleton i n) emptyBuilder
 
 
 -- | Find all the structure required for a merge. This is unlikely to
@@ -786,7 +797,7 @@ completeMergeDownstream p q = let
   in inner M.empty
 
 
--- | __me__ld is like __me__rge.
+-- | The mnemonic is that __me__ld is like __me__rge.
 addMeldA :: forall f j k l m n o a u v w.
             (Traversable f,
              Applicative f,
@@ -987,10 +998,14 @@ addUnsharedTransform :: forall f k l m n a v w.
                      => (v -> f w)
                      -> (forall x. a -> m x -> n x)
                      -> IntMap (Node' k m a v)
-                     -> Builder l n a w
                      -> IntMap (f (State (Builder l n a w) (Node l n a w)))
 addUnsharedTransform p q = let
-  in _
+  f :: Node' k m a v
+    -> IntMap (f (State (Builder l n a w) (Node l n a w)))
+    -> f (State (Builder l n a w) (Node l n a w))
+  f (Leaf x) _ = state . addLeaf <$> p x
+  f (Branch c n) m =
+  in assembleInt (const f) . completeDownstream
 
 
 -- TODO Write in terms of addUnsharedMeldA?
@@ -1157,7 +1172,7 @@ computeNeighbours = let
   addCommonValues :: (Node k m a v, Node k m a v)
                   -> State (Map (Int, Int) [(v, v)]) [(v, v)]
   addCommonValues (Node i m, Node j n) e = case e M.!? (i,j) of
-    Nothing -> 
+    Nothing ->
 
   inner :: Map (Int, Int) [(v, v)]
            -- ^ Common values taken by the two nodes listed
@@ -1173,4 +1188,6 @@ instance (Mapping k m,
           Neighbourly m d)
        => Neighbourly (Decision k m a) (a, d) where
   foldmapNeighbours = _
+-}
+
 -}
