@@ -76,9 +76,7 @@
 --  * Monotonically renaming branches (Decision k m a v -> Decision k m b v)
 --
 --  * Nonmonotonic branch renaming
---
---  * Composition algorithm
---
+
 --  * Optimisation by reordering
 
 -- | Decision diagrams, parametric in the mapping type for the decisions.
@@ -122,35 +120,6 @@ import Data.Mapping
 
 
 
-{-
-
-assemble :: Ord k => (k -> u -> Map k v -> v) -> Map k u -> Map k v
-assemble f = let
-  inner d t = case M.minViewWithKey t of
-    Nothing -> d
-    Just ((k,u),t') -> inner (M.insert k (f k u d) d) t'
-  in inner M.empty
-
-assembleInt :: (Int -> u -> IntMap v -> v) -> IntMap u -> IntMap v
-assembleInt f = let
-  inner d t = case IM.minViewWithKey t of
-    Nothing -> d
-    Just ((k,u),t') -> inner (IM.insert k (f k u d) d) t'
-  in inner IM.empty
-
-{-
--- | Thread an accumulating value through a map, but with access to
--- the part already created
-assembleAccum :: Ord k => (k -> u -> Map k v -> a -> (a, v)) -> a -> Map k u -> (a, Map k v)
-assembleAccum f = let
-  inner d a t = case M.minViewWithKey t of
-    Nothing -> (a, d)
-    Just ((k,u),t') -> let
-      (b,v) = f k u d a
-      in inner (M.insert k v d) b t'
-  in inner M.empty
--}
-
 
 -- | We assume that the serial numbers are all distinct within each
 -- decision graph, and that nodes only refer to nodes with smaller
@@ -182,6 +151,93 @@ instance Eq (Node k m a v) where
 instance Ord (Node k m a v) where
   compare = comparing serial
 
+
+newtype Builder k m a v = Builder {
+  nodeMap :: Map (Node' k m a v) Int
+}
+
+emptyBuilder :: Builder k m a v
+emptyBuilder = Builder M.empty
+
+addLeaf :: (Mapping k m,
+            forall x. Ord x => Ord (m x),
+            Ord a,
+            Ord v)
+        => v
+        -> State (Builder k m a v) (Node k m a v)
+addLeaf x = let
+  r b@(Builder m) = let
+    (i, s) = insertIfAbsent (Leaf x) (M.size m) m
+    b' = case s of
+      Nothing -> b
+      Just m' -> Builder m'
+    in (Node i (Leaf x), b')
+  in state r
+
+-- | An atomic addition: assumes all nodes linked to are already in
+addBranch :: (Mapping k m,
+              forall x. Ord x => Ord (m x),
+              Ord a,
+              Ord v)
+          => a
+          -> m (Node k m a v)
+          -> State (Builder k m a v) (Node k m a v)
+addBranch c n = let
+  r b@(Builder m) = case isConst n of
+    Just x -> (x, b)
+    Nothing -> let
+      (i, s) = insertIfAbsent (Branch c n) (M.size m) m
+      b' = case s of
+        Nothing -> b
+        Just m' -> Builder m'
+      in (Node i (Branch c n), b')
+  in state r
+
+
+
+incTraverse :: (Mapping l n)
+            => (v -> f w)
+            -> (forall x. a -> m x -> n x)
+            -> Node k m a v
+            -> State (IntMap (State (Builder l n a w) (f (Node l n a w))))
+                             (State (Builder l n a w) (f (Node l n a w)))
+incTraverse p q (Node i n) = let
+  r m = case m IM.!? i of
+    Just x  -> (x, m)
+    Nothing -> case n of
+      Leaf x -> _
+  in state r
+
+{-
+
+assemble :: Ord k => (k -> u -> Map k v -> v) -> Map k u -> Map k v
+assemble f = let
+  inner d t = case M.minViewWithKey t of
+    Nothing -> d
+    Just ((k,u),t') -> inner (M.insert k (f k u d) d) t'
+  in inner M.empty
+
+assembleInt :: (Int -> u -> IntMap v -> v) -> IntMap u -> IntMap v
+assembleInt f = let
+  inner d t = case IM.minViewWithKey t of
+    Nothing -> d
+    Just ((k,u),t') -> inner (IM.insert k (f k u d) d) t'
+  in inner IM.empty
+
+{-
+-- | Thread an accumulating value through a map, but with access to
+-- the part already created
+assembleAccum :: Ord k => (k -> u -> Map k v -> a -> (a, v)) -> a -> Map k u -> (a, Map k v)
+assembleAccum f = let
+  inner d a t = case M.minViewWithKey t of
+    Nothing -> (a, d)
+    Just ((k,u),t') -> let
+      (b,v) = f k u d a
+      in inner (M.insert k v d) b t'
+  in inner M.empty
+-}
+
+
 networkSerials :: Foldable m => IntMap (Node' k m a v) -> IntSet
 networkSerials = let
   inner s m = case IM.maxViewWithKey m of
@@ -206,31 +262,6 @@ newtype Decision k m a v = Decision {
 size :: Foldable m => Decision k m a v -> Int
 size (Decision (Node i d)) = networkSize $ IM.singleton i d
 
-newtype Builder k m a v = Builder {
-  nodeMap :: Map (Node' k m a v) Int
-}
-
-emptyBuilder :: Builder k m a v
-emptyBuilder = Builder M.empty
-
-addLeaf :: (Mapping k m, Ord a, Ord v, forall x. Ord x => Ord (m x)) => v -> Builder k m a v -> (Node k m a v, Builder k m a v)
-addLeaf x b@(Builder m) = let
-  (i, s) = insertIfAbsent (Leaf x) (M.size m) m
-  b' = case s of
-    Nothing -> b
-    Just m' -> Builder m'
-  in (Node i (Leaf x), b')
-
--- | An atomic addition: assumes all nodes linked to are already in
-addBranch :: (Mapping k m, Ord a, Ord v, forall x. Ord x => Ord (m x)) => a -> m (Node k m a v) -> Builder k m a v -> (Node k m a v, Builder k m a v)
-addBranch c n b@(Builder m) = case isConst n of
-  Just x -> (x, b)
-  Nothing -> let
-    (i, s) = insertIfAbsent (Branch c n) (M.size m) m
-    b' = case s of
-      Nothing -> b
-      Just m' -> Builder m'
-    in (Node i (Branch c n), b')
 
 instance Foldable m => Foldable (Decision k m a) where
   foldMap f = let
