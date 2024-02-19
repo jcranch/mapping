@@ -12,6 +12,16 @@
 
 -- TODO
 --
+--  == Recursive functions (current plan)
+--
+--  * Start with transform, and write a type for it that includes
+--    transformations at the nodes, and is incremental.
+--
+--  * Can use it to produce versions that build too, I believe.
+--
+--
+--  == Recursive functions (old)
+--
 --  * Create incremental functions for transformations
 --
 --  * Explain recursion. Three levels:
@@ -30,18 +40,30 @@
 --  * "Rebuild": add a decision tree to a builder (can be done quickly
 --    using addMap or similar, but that may not be obvious!)
 --
---  * Stash away non-public functions (either with an explicit export
---    list, or in a separate module)
+--
+--  == Functionality
+--
+--  * Ensure we have a full set of builder/decision functionality
 --
 --  * Neighbours
 --
 --  * The two composition functions (mjoin/combine)
 --
+--  * Monotonically renaming branches (Decision k m a v -> Decision k m b v)
+--
+--  * Nonmonotonic branch renaming
+--
+--  * Optimisation by reordering
+--
+--
+--  == General engineering
+--
+--  * Stash away non-public functions (either with an explicit export
+--    list, or in a separate module)
+--
 --  * Check for detailed comments in code
 --
 --  * Remove outdated and commented-out stuff
---
---  * Ensure we have a full set of builder/decision functionality
 --
 --  * hlint might have some things to say
 --
@@ -72,12 +94,8 @@
 --    (as examples of the more general functions, already coded, I hope)
 --
 --  * Get the documentation nice
---
---  * Monotonically renaming branches (Decision k m a v -> Decision k m b v)
---
---  * Nonmonotonic branch renaming
 
---  * Optimisation by reordering
+
 
 -- | Decision diagrams, parametric in the mapping type for the decisions.
 --
@@ -195,13 +213,14 @@ addBranch c n = let
 
 
 
-incTraverse :: (Mapping l n)
-            => (v -> f w)
-            -> (forall x. a -> m x -> n x)
-            -> Node k m a v
-            -> State (IntMap (State (Builder l n a w) (f (Node l n a w))))
-                             (State (Builder l n a w) (f (Node l n a w)))
-incTraverse p q (Node i n) = let
+-- | An incremental approach to transforming
+incTransform :: (Mapping l n)
+             => (v -> f w)
+             -> (forall x. a -> m (f x) -> f (n x)) -- does it allow us to use a builder?
+             -> Node k m a v
+             -> State (IntMap (f (Node l n a w)))
+                              (f (Node l n a w))
+incTransform p q (Node i n) = let
   r m = case m IM.!? i of
     Just x  -> (x, m)
     Nothing -> case n of
