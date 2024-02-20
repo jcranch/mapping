@@ -216,15 +216,16 @@ addBranch c n = let
 -- | An incremental approach to transforming
 incTransform :: (Mapping l n)
              => (v -> f w)
-             -> (forall x. a -> m (f x) -> f (n x)) -- does it allow us to use a builder?
+             -> (forall x. a -> m (f x) -> f (n x)) -- is this general enough to use a builder?
              -> Node k m a v
              -> State (IntMap (f (Node l n a w)))
                               (f (Node l n a w))
-incTransform p q (Node i n) = let
+incTransform p q (Node i u) = let
   r m = case m IM.!? i of
     Just x  -> (x, m)
-    Nothing -> case n of
-      Leaf x -> _
+    Nothing -> case u of
+      Leaf a     -> _
+      Branch c n -> _
   in state r
 
 {-
