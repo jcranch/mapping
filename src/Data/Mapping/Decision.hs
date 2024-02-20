@@ -218,8 +218,8 @@ incTransform :: (Mapping l n)
              => (v -> f w)
              -> (forall x. a -> m (f x) -> f (n x)) -- is this general enough to use a builder?
              -> Node k m a v
-             -> State (IntMap (f (Node l n a w)))
-                              (f (Node l n a w))
+             -> State (IntMap (f (Node' l n a w)))
+                              (f (Node' l n a w))
 incTransform p q (Node i u) = let
   r m = case m IM.!? i of
     Just x  -> (x, m)
