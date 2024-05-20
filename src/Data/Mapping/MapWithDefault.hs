@@ -10,7 +10,11 @@ module Data.Mapping.MapWithDefault where
 import Control.Applicative (liftA2)
 #endif
 import Data.Algebra.Boolean
+#if MIN_VERSION_GLASGOW_HASKELL(9,10,0,0)
+import Data.List (groupBy)
+#else
 import Data.List (foldl', groupBy)
+#endif
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Map.Merge.Strict as M

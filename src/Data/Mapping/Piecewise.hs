@@ -168,8 +168,9 @@ instance Ord k => Mapping k (Piecewise k) where
 
 instance Neighbourly (Piecewise k) where
   neighbours m = let
-    v = values m
-    in S.fromList $ zip v (tail v)
+    pairs (x:r@(y:_)) = (x,y):pairs r
+    pairs _           = []
+    in S.fromList . pairs $ values m
 
 deriving via (AlgebraWrapper k (Piecewise k) b)
   instance (Ord k, Ord b, Semigroup b) => Semigroup (Piecewise k b)

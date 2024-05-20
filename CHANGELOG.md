@@ -1,3 +1,7 @@
+## [0.3.1.0] - 2024-05-20
+
+* Support for GHC 9.10
+
 ## [0.3.0.0] - 2023-12-06
 
 * Extra functionality for `Data.Mapping.Piecewise`
