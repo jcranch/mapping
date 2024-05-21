@@ -1,20 +1,14 @@
 {-# LANGUAGE
-      CPP,
       DerivingVia
   #-}
 
 module Data.Mapping.MapWithDefault where
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
-#else
-import Control.Applicative (liftA2)
-#endif
+import Prelude hiding (Applicative(..), Foldable(..))
+import Control.Applicative (Applicative(..))
 import Data.Algebra.Boolean
-#if MIN_VERSION_GLASGOW_HASKELL(9,10,0,0)
+import Data.Foldable (Foldable(..))
 import Data.List (groupBy)
-#else
-import Data.List (foldl', groupBy)
-#endif
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Map.Merge.Strict as M
