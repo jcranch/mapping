@@ -35,20 +35,28 @@ import Data.Void (Void)
 -- very large collection of keys, the only folds that normally make
 -- sense are those over idempotent monoids.
 class Foldable m => Mapping k m | m -> k where
+
+  -- | Constant mappings on an element
   cst :: v -> m v
 
+  -- | Treat a mapping as a function @k -> v@
   act :: m v -> k -> v
 
-  isConst :: Ord v => m v -> Maybe v
+  -- | Is a mapping a constant function, and if so what's its value?
+  isConst :: Eq v => m v -> Maybe v
 
-  mtraverse :: (Applicative f, Ord v) => (u -> f v) -> m u -> f (m v)
+  -- | Traverse a mapping
+  mtraverse :: (Applicative f, Eq v) => (u -> f v) -> m u -> f (m v)
 
-  mmap :: Ord v => (u -> v) -> m u -> m v
+  -- | Map over a mapping
+  mmap :: Eq v => (u -> v) -> m u -> m v
   mmap p = runIdentity . mtraverse (Identity . p)
 
-  mergeA :: (Applicative f, Ord w) => (u -> v -> f w) -> m u -> m v -> f (m w)
+  -- | Merge two mappings in an applicative
+  mergeA :: (Applicative f, Eq w) => (u -> v -> f w) -> m u -> m v -> f (m w)
 
-  merge :: Ord w => (u -> v -> w) -> m u -> m v -> m w
+  -- | Merge two mappings
+  merge :: Eq w => (u -> v -> w) -> m u -> m v -> m w
   merge p m n = let
     q x y = Identity $ p x y
     in runIdentity $ mergeA q m n
@@ -284,7 +292,7 @@ instance (Foldable m, Foldable n) => Foldable (OnPair k l m n) where
 
 instance (Mapping k m,
           Mapping l n,
-          forall v. Ord v => Ord (n v))
+          forall v. Eq v => Eq (n v))
        => Mapping (k, l) (OnPair k l m n) where
   cst x = OnPair . cst $ cst x
   mmap p (OnPair f) = OnPair (mmap (mmap p) f)
@@ -295,16 +303,16 @@ instance (Mapping k m,
   merge h (OnPair f) (OnPair g) = OnPair $ merge (merge h) f g
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Semigroup a, forall v. Ord v => Ord (n v)) => Semigroup (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Ord a, Semigroup a, forall v. Eq v => Eq (n v)) => Semigroup (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Monoid a, forall v. Ord v => Ord (n v)) => Monoid (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Ord a, Monoid a, forall v. Eq v => Eq (n v)) => Monoid (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Num a, forall v. Ord v => Ord (n v)) => Num (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Ord a, Num a, forall v. Eq v => Eq (n v)) => Num (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) b)
-  instance (Mapping k m, Mapping l n, Ord b, Boolean b, forall v. Ord v => Ord (n v)) => Boolean (OnPair k l m n b)
+  instance (Mapping k m, Mapping l n, Ord b, Boolean b, forall v. Eq v => Eq (n v)) => Boolean (OnPair k l m n b)
 
 
 -- Is the first a subset of the second?
