@@ -10,7 +10,21 @@
       UndecidableInstances
   #-}
 
--- TODO
+-- TODO (new)
+--
+--  * Don't worry about implementing Mapping, but provide
+--    like-for-like functionality, with everything working on a
+--    (hashset-backed) Builder
+--
+--  * Shortcut equality tests using referential equality
+--
+--  * Use hashmap for storing data
+--
+--  * Provide function for stripping and merging Bases
+--
+--  * Go through the old todos and extract functionality
+
+-- TODO (old)
 --
 --  == Recursive functions (current plan)
 --
@@ -137,39 +151,29 @@ import qualified Formatting as F
 import Data.Mapping
 
 
+-- TODO Branches should store their own hashes
 
-
--- | We assume that the serial numbers are all distinct within each
--- decision graph, and that nodes only refer to nodes with smaller
--- serial numbers). All code in this library will maintain this
--- invariant.
-data Node' k m a v =
+data Node k m a v =
   Leaf v |
-  Branch a (m (Node k m a v))
+  Branch Int a (m (Node k m a v))
 
-instance (Mapping k m, Eq a, Eq v, Eq (m (Node k m a v))) => Eq (Node' k m a v) where
+-- TODO referential equality shortcuts
+
+instance (Mapping k m, Eq a, Eq v, Eq (m (Node k m a v))) => Eq (Node k m a v) where
   Leaf x     == Leaf y     = x == y
   Branch c m == Branch d n = c == d && m == n
   _          == _          = False
 
-instance (Mapping k m, Ord a, Ord v, Ord (m (Node k m a v))) => Ord (Node' k m a v) where
+instance (Mapping k m, Ord a, Ord v, Ord (m (Node k m a v))) => Ord (Node k m a v) where
   compare (Leaf _)     (Branch _ _) = LT
   compare (Branch _ _) (Leaf _)     = GT
   compare (Leaf x)     (Leaf y)     = compare x y
   compare (Branch c m) (Branch d n) = compare c d <> compare m n
 
-data Node k m a v = Node {
-  serial :: !Int,
-  node :: Node' k m a v
-}
-
-instance Eq (Node k m a v) where
-  Node i _ == Node j _ = i == j
-
-instance Ord (Node k m a v) where
-  compare = comparing serial
 
 
+
+{-
 newtype Builder k m a v = Builder {
   nodeMap :: Map (Node' k m a v) Int
 }
@@ -1239,6 +1243,8 @@ instance (Mapping k m,
           Neighbourly m d)
        => Neighbourly (Decision k m a) (a, d) where
   foldmapNeighbours = _
+-}
+
 -}
 
 -}

@@ -43,28 +43,28 @@ class Foldable m => Mapping k m | m -> k where
   act :: m v -> k -> v
 
   -- | Is this a constant mapping, and if so what's the value?
-  isConst :: Ord v => m v -> Maybe v
+  isConst :: Eq v => m v -> Maybe v
 
-  -- | Like `fmap`, but unfortunately some instances require an `Ord`
+  -- | Like `fmap`, but unfortunately some instances require an `Eq`
   -- instance on the values.
-  mmap :: Ord v => (u -> v) -> m u -> m v
+  mmap :: Eq v => (u -> v) -> m u -> m v
   mmap p = runIdentity . mtraverse (Identity . p)
 
-  -- | Like `fmap`, but circumvents the need for an `Ord` instance on
+  -- | Like `fmap`, but circumvents the need for an `Eq` instance on
   -- @v@ by demanding that the function be injective.
   mmapInj :: (u -> v) -> m u -> m v
 
   -- | Like `traverse`, but unfortunately some instances require an
-  -- `Ord` instance on the values.
-  mtraverse :: (Applicative f, Ord v) => (u -> f v) -> m u -> f (m v)
+  -- `Eq` instance on the values.
+  mtraverse :: (Applicative f, Eq v) => (u -> f v) -> m u -> f (m v)
 
-  -- | Like `traverse`, but circumvents the need for an `Ord` instance
+  -- | Like `traverse`, but circumvents the need for an `Eq` instance
   -- on @v@ by demanding that the function be injective.
   mtraverseInj :: Applicative f => (u -> f v) -> m u -> f (m v)
 
-  mergeA :: (Applicative f, Ord w) => (u -> v -> f w) -> m u -> m v -> f (m w)
+  mergeA :: (Applicative f, Eq w) => (u -> v -> f w) -> m u -> m v -> f (m w)
 
-  merge :: Ord w => (u -> v -> w) -> m u -> m v -> m w
+  merge :: Eq w => (u -> v -> w) -> m u -> m v -> m w
   merge p m n = let
     q x y = Identity $ p x y
     in runIdentity $ mergeA q m n
@@ -87,7 +87,7 @@ mutualValues = pairMappings $ curry S.singleton
 -- neighbouring values; the type d represents some information about
 -- the interface between these values
 class Neighbourly m d | m -> d where
-  foldmapNeighbours :: (Monoid a, Ord v) => (d -> v -> v -> a) -> m v -> a
+  foldmapNeighbours :: (Monoid a, Eq v) => (d -> v -> v -> a) -> m v -> a
 
 neighbours :: (Neighbourly m d, Ord v) => m v -> Set (v, v)
 neighbours = foldmapNeighbours (\_ x y -> S.singleton (x,y))
@@ -98,13 +98,13 @@ neighbours = foldmapNeighbours (\_ x y -> S.singleton (x,y))
 -- Eventually would like to use this only for "deriving via"
 newtype AlgebraWrapper k m a = AlgebraWrapper { algebraUnwrap :: m a }
 
-instance (Mapping k m, Ord a, Semigroup a) => Semigroup (AlgebraWrapper k m a) where
+instance (Mapping k m, Eq a, Semigroup a) => Semigroup (AlgebraWrapper k m a) where
   (<>) = (AlgebraWrapper .) . merge (<>) `on` algebraUnwrap
 
-instance (Mapping k m, Ord a, Monoid a) => Monoid (AlgebraWrapper k m a) where
+instance (Mapping k m, Eq a, Monoid a) => Monoid (AlgebraWrapper k m a) where
   mempty = AlgebraWrapper $ cst mempty
 
-instance (Mapping k m, Ord a, Num a) => Num (AlgebraWrapper k m a) where
+instance (Mapping k m, Eq a, Num a) => Num (AlgebraWrapper k m a) where
   (+) =  (AlgebraWrapper .) . merge (+) `on` algebraUnwrap
   (-) =  (AlgebraWrapper .) . merge (-) `on` algebraUnwrap
   (*) =  (AlgebraWrapper .) . merge (*) `on` algebraUnwrap
@@ -113,7 +113,7 @@ instance (Mapping k m, Ord a, Num a) => Num (AlgebraWrapper k m a) where
   negate = AlgebraWrapper . mmap negate . algebraUnwrap
   signum = AlgebraWrapper . mmap signum . algebraUnwrap
 
-instance (Mapping k m, Ord a, Boolean a) => Boolean (AlgebraWrapper k m a) where
+instance (Mapping k m, Eq a, Boolean a) => Boolean (AlgebraWrapper k m a) where
   true = AlgebraWrapper $ cst true
   false = AlgebraWrapper $ cst false
   not = AlgebraWrapper . mmap not . algebraUnwrap
@@ -219,16 +219,16 @@ instance Neighbourly OnBool () where
     | otherwise = f () x y
 
 deriving via (AlgebraWrapper Bool OnBool a)
-  instance (Ord a, Semigroup a) => Semigroup (OnBool a)
+  instance (Eq a, Semigroup a) => Semigroup (OnBool a)
 
 deriving via (AlgebraWrapper Bool OnBool a)
-  instance (Ord a, Monoid a) => Monoid (OnBool a)
+  instance (Eq a, Monoid a) => Monoid (OnBool a)
 
 deriving via (AlgebraWrapper Bool OnBool a)
-  instance (Ord a, Num a) => Num (OnBool a)
+  instance (Eq a, Num a) => Num (OnBool a)
 
 deriving via (AlgebraWrapper Bool OnBool b)
-  instance (Ord b, Boolean b) => Boolean (OnBool b)
+  instance (Eq b, Boolean b) => Boolean (OnBool b)
 
 
 -- | Maps on Maybe
@@ -258,16 +258,16 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
   mergeA h (OnMaybe x a) (OnMaybe y b) = liftA2 OnMaybe (h x y) (mergeA h a b)
 
 deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Semigroup a) => Semigroup (OnMaybe k m a)
+  instance (Mapping k m, Eq a, Semigroup a) => Semigroup (OnMaybe k m a)
 
 deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Monoid a) => Monoid (OnMaybe k m a)
+  instance (Mapping k m, Eq a, Monoid a) => Monoid (OnMaybe k m a)
 
 deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Num a) => Num (OnMaybe k m a)
+  instance (Mapping k m, Eq a, Num a) => Num (OnMaybe k m a)
 
 deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Boolean a) => Boolean (OnMaybe k m a)
+  instance (Mapping k m, Eq a, Boolean a) => Boolean (OnMaybe k m a)
 
 
 -- | Maps on Either
@@ -300,16 +300,16 @@ instance (Mapping k m,
   merge h (OnEither f1 g1) (OnEither f2 g2) = OnEither (merge h f1 f2) (merge h g1 g2)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Semigroup a) => Semigroup (OnEither k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Semigroup a) => Semigroup (OnEither k l m n a)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Monoid a) => Monoid (OnEither k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Monoid a) => Monoid (OnEither k l m n a)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Num a) => Num (OnEither k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Num a) => Num (OnEither k l m n a)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Boolean a) => Boolean (OnEither k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Boolean a) => Boolean (OnEither k l m n a)
 
 
 -- | Maps on pairs
@@ -322,7 +322,7 @@ instance (Foldable m, Foldable n) => Foldable (OnPair k l m n) where
 
 instance (Mapping k m,
           Mapping l n,
-          forall v. Ord v => Ord (n v))
+          forall v. Eq v => Eq (n v))
        => Mapping (k, l) (OnPair k l m n) where
   cst x = OnPair . cst $ cst x
   mmap p (OnPair f) = OnPair (mmap (mmap p) f)
@@ -335,16 +335,16 @@ instance (Mapping k m,
   merge h (OnPair f) (OnPair g) = OnPair $ merge (merge h) f g
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Semigroup a, forall v. Ord v => Ord (n v)) => Semigroup (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Semigroup a, forall v. Eq v => Eq (n v)) => Semigroup (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Monoid a, forall v. Ord v => Ord (n v)) => Monoid (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Monoid a, forall v. Eq v => Eq (n v)) => Monoid (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Num a, forall v. Ord v => Ord (n v)) => Num (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Eq a, Num a, forall v. Eq v => Eq (n v)) => Num (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) b)
-  instance (Mapping k m, Mapping l n, Ord b, Boolean b, forall v. Ord v => Ord (n v)) => Boolean (OnPair k l m n b)
+  instance (Mapping k m, Mapping l n, Eq b, Boolean b, forall v. Eq v => Eq (n v)) => Boolean (OnPair k l m n b)
 
 
 -- Is the first a subset of the second?

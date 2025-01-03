@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.36.0.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -27,6 +27,8 @@ source-repository head
 library
   exposed-modules:
       Data.Bijection
+      Data.GenMapping
+      Data.HashSet.Caching
       Data.Mapping
       Data.Mapping.Decision
       Data.Mapping.MapWithDefault
@@ -44,9 +46,11 @@ library
     , cond >=0.5.1 && <0.6
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
+    , hashable ==1.4.*
     , indexed-traversable >=0.1.1 && <0.2
     , mtl ==2.3.*
     , partialord >=0.0.2 && <0.1
+    , unordered-containers >=0.2.20 && <0.3
   default-language: GHC2021
 
 executable view
@@ -63,10 +67,12 @@ executable view
     , cond >=0.5.1 && <0.6
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
+    , hashable ==1.4.*
     , indexed-traversable >=0.1.1 && <0.2
     , mappings
     , mtl ==2.3.*
     , partialord >=0.0.2 && <0.1
+    , unordered-containers >=0.2.20 && <0.3
   default-language: GHC2021
 
 test-suite mapping
@@ -89,9 +95,11 @@ test-suite mapping
     , cond >=0.5.1 && <0.6
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
+    , hashable ==1.4.*
     , hspec ==2.11.*
     , indexed-traversable >=0.1.1 && <0.2
     , mappings
     , mtl ==2.3.*
     , partialord >=0.0.2 && <0.1
+    , unordered-containers >=0.2.20 && <0.3
   default-language: GHC2021
