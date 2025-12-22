@@ -1,6 +1,6 @@
 cabal-version: 2.2
 
--- This file has been generated from package.yaml by hpack version 0.36.0.
+-- This file has been generated from package.yaml by hpack version 0.37.0.
 --
 -- see: https://github.com/sol/hpack
 
@@ -40,12 +40,12 @@ library
       src
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
   build-depends:
-      base >=4.16 && <4.21
+      base >=4.16 && <4.22
     , cond >=0.5.1 && <0.6
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
     , indexed-traversable >=0.1.1 && <0.2
-    , partialord >=0.0.2 && <0.1
+    , partialord >=0.0.2 && <0.2
   default-language: GHC2021
 
 executable view
@@ -58,13 +58,13 @@ executable view
       examples
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      base >=4.16 && <4.21
+      base >=4.16 && <4.22
     , cond >=0.5.1 && <0.6
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
     , indexed-traversable >=0.1.1 && <0.2
     , mappings
-    , partialord >=0.0.2 && <0.1
+    , partialord >=0.0.2 && <0.2
   default-language: GHC2021
 
 test-suite mapping
@@ -83,12 +83,12 @@ test-suite mapping
   build-tool-depends:
       hspec-discover:hspec-discover ==2.11.*
   build-depends:
-      base >=4.16 && <4.21
+      base >=4.16 && <4.22
     , cond >=0.5.1 && <0.6
     , containers >=0.6.5 && <0.8
     , formatting >=7.0.0 && <7.3
     , hspec ==2.11.*
     , indexed-traversable >=0.1.1 && <0.2
     , mappings
-    , partialord >=0.0.2 && <0.1
+    , partialord >=0.0.2 && <0.2
   default-language: GHC2021
