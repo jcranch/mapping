@@ -1,10 +1,10 @@
 name:                mappings
-version:             0.3.1.0
+version:             0.3.2.0
 github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"
 maintainer:          "j.d.cranch@sheffield.ac.uk"
-copyright:           "2023-24 James Cranch"
+copyright:           "2023-25 James Cranch"
 
 extra-doc-files:
 - README.md
