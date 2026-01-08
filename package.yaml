@@ -1,10 +1,10 @@
 name:                mappings
-version:             0.3.3.0
+version:             0.3.4.0
 github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"
 maintainer:          "j.d.cranch@sheffield.ac.uk"
-copyright:           "2023-25 James Cranch"
+copyright:           "2023-26 James Cranch"
 
 extra-doc-files:
 - README.md
@@ -16,9 +16,9 @@ category:            Data structures
 description:         A typeclass and a number of implementations; please read README.md on github
 
 dependencies:
-- base                   >= 4.16      &&  < 4.22
+- base                   >= 4.16      &&  < 4.23
 - cond                   >= 0.5.1     &&  < 0.6
-- containers             >= 0.6.5     &&  < 0.8
+- containers             >= 0.6.5     &&  < 0.9
 - formatting             >= 7.0.0     &&  < 7.3
 - indexed-traversable    >= 0.1.1     &&  < 0.2
 - partialord             >= 0.0.2     &&  < 0.2
