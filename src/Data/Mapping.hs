@@ -15,13 +15,12 @@ module Data.Mapping where
 import Control.Applicative (liftA2)
 #endif
 import Prelude hiding (not, (&&), (||))
-import Data.Algebra.Boolean (Boolean(..))
+import Data.Algebra.Boolean (Boolean(..), AllB(..))
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Function (on)
 import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
 import Data.Kind (Type)
-import Data.Monoid (All(..))
 import Data.PartialOrd
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -307,23 +306,27 @@ deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -
   instance (Mapping k m, Mapping l n, Ord b, Boolean b, forall v. Ord v => Ord (n v)) => Boolean (OnPair k l m n b)
 
 
--- Is the first a subset of the second?
---
--- With a future version of cond, we should be able to generalise this
-isSubset :: Mapping k m => m Bool -> m Bool -> Bool
-isSubset m n = let
-  p True False = All False
-  p _ _        = All True
-  in getAll $ pairMappings p m n
+-- | A moderately efficient three-way merge amounting to if-then-else
+mergeIfThenElse :: (Mapping k m, Ord v) => m Bool -> m v -> m v -> m v
+mergeIfThenElse m n1 n2 = let
+  f True  x = Just x
+  f False _ = Nothing
+  g (Just x) _ = x
+  g Nothing  y = y
+  in merge g (merge f m n1) n2
 
--- Are the two true on distinct values?
---
--- Again, with a future version of cond, we should be able to generalise this
-isDisjoint :: Mapping k m => m Bool -> m Bool -> Bool
+
+-- | Is the first a subset of the second?
+isSubset :: (Boolean b, Mapping k m) => m b -> m b -> b
+isSubset m n = let
+  p x y = AllB (x --> y)
+  in getAllB $ pairMappings p m n
+
+-- | Are the two true on distinct values?
+isDisjoint :: (Boolean b, Mapping k m) => m b -> m b -> b
 isDisjoint m n = let
-  p True True = All False
-  p _ _       = All True
-  in getAll $ pairMappings p m n
+  p x y = AllB (not (x && y))
+  in getAllB $ pairMappings p m n
 
 
 -- | A wrapper to allow defining `PartialOrd` instances on mappings whose keys
