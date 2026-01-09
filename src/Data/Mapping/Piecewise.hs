@@ -11,6 +11,7 @@ import Control.Applicative (liftA2)
 #endif
 import Control.Applicative (liftA3)
 import Data.Algebra.Boolean
+import Data.Foldable (toList)
 import qualified Data.Map.Internal as MI
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -83,10 +84,6 @@ greaterThan = greaterThanOrEqual . succ
 -- arithmetic, for example)
 lessThanOrEqual :: Enum k => k -> Piecewise k Bool
 lessThanOrEqual = lessThan . succ
-
--- | All values, in order of increasing key
-values :: Piecewise k v -> [v]
-values (Piecewise x m) = x : M.elems m
 
 instance (Eq k) => Functor (Piecewise k) where
   fmap p (Piecewise a f) = fromAscListUnsafe (p a) (fmap p <$> M.toList f)
@@ -166,11 +163,19 @@ instance Ord k => Mapping k (Piecewise k) where
 
     in run
 
+  bind f (Piecewise a m) = let
+    inner p []        = p
+    inner p ((k,q):l) = let
+      (p',  _) = splitPiecewise k p
+      (_ , q') = splitPiecewise k q
+      in gluePiecewise p' k $ inner q' l
+    in inner (f a) (fmap f <$> M.toList m)
+
 instance Neighbourly (Piecewise k) where
   neighbours m = let
     pairs (x:r@(y:_)) = (x,y):pairs r
     pairs _           = []
-    in S.fromList . pairs $ values m
+    in S.fromList . pairs $ toList m
 
 deriving via (AlgebraWrapper k (Piecewise k) b)
   instance (Ord k, Ord b, Semigroup b) => Semigroup (Piecewise k b)
@@ -217,14 +222,3 @@ gluePiecewise :: (Eq v) => Piecewise k v -> k -> Piecewise k v -> Piecewise k v
 gluePiecewise p@(Piecewise a m) k (Piecewise c n) = let
   b = rightEnd p
   in Piecewise a (if b == c then MI.link2 m n else MI.link k c m n)
-
--- | This is almost a monad (with `cst` as `pure`) except that we need
--- an `Eq` instance on the values.
-mjoin :: (Ord k, Eq w) => (v -> Piecewise k w) -> Piecewise k v -> Piecewise k w
-mjoin f (Piecewise a m) = let
-  inner p []        = p
-  inner p ((k,q):l) = let
-    (p',  _) = splitPiecewise k p
-    (_ , q') = splitPiecewise k q
-    in gluePiecewise p' k $ inner q' l
-  in inner (f a) (fmap f <$> M.toList m)

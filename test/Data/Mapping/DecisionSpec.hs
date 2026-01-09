@@ -1,7 +1,8 @@
 module Data.Mapping.DecisionSpec where
 
 import Prelude hiding ((&&), (||), not, all)
-import qualified Data.Map as M
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Test.Hspec
 import Data.Algebra.Boolean ((&&), (||), not, all)
@@ -15,6 +16,15 @@ boolAct ::    Ord a
            -> [a]
            -> Bool
 boolAct a s = act a (`S.member` S.fromList s)
+
+
+completeAssignments :: Ord a => [a] -> Map a Bool -> [Map a Bool]
+completeAssignments [] m = pure m
+completeAssignments (v:vs) m = let
+  l = case M.lookup v m of
+    Just _  -> pure m
+    Nothing -> [M.insert v False m, M.insert v True m]
+  in completeAssignments vs =<< l
 
 
 spec :: Spec
@@ -75,7 +85,7 @@ spec = do
     it "y || x true on {x,y}" $ do
       boolAct (y || x) ["x", "y"] `shouldBe` True
 
-  describe "Check of listTrue" $ do
+  describe "Check of trueAssignments" $ do
 
     let x0y0 = M.fromList [("x", False), ("y", False)]
     let x0y1 = M.fromList [("x", False), ("y", True)]
@@ -83,38 +93,41 @@ spec = do
     let x1y1 = M.fromList [("x", True), ("y", True)]
 
     it "Should work on &&" $ do
-      S.fromList (listTrue (S.fromList ["x", "y"]) (x && y))
+      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (x && y))
         `shouldBe` S.fromList [x1y1]
     it "Should work on ||" $ do
-      S.fromList (listTrue (S.fromList ["x", "y"]) (x || y))
+      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (x || y))
         `shouldBe` S.fromList [x0y1, x1y0, x1y1]
     it "Should work on not (1)" $ do
-      S.fromList (listTrue (S.fromList ["x", "y"]) (not x))
+      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (not x))
         `shouldBe` S.fromList [x0y0, x0y1]
     it "Should work on not (2)" $ do
-      S.fromList (listTrue (S.fromList ["x", "y"]) (not y))
+      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (not y))
         `shouldBe` S.fromList [x0y0, x1y0]
 
-  describe "Properties of independent sets in C_100" $ do
+  describe "Independent maximal sets in C_100" $ do
 
-    let l2 = (100,1):[(n,n+1) | n <- [1..99]]
-    let l3 = (99,100,1):(100,1,2):[(n,n+1,n+2) | n <- [1..98]]
+    let l2 = (99,0):[(n,n+1) | n <- [0..98]]
+    let l3 = (98,99,0):(99,0,1):[(n,n+1,n+2) | n <- [0..97]]
     let independent = all (\(i,j) -> not (test i && test j)) l2
     let maximal = all (\(i,j,k) -> test i || test j || test k) l3
     let t = independent && maximal
 
     -- Mentioned in Knuth
     it "should have the right count" $ do
-      numberTrue (1::Int) 100 t `shouldBe` 1630580875002
+      foldingCountTrue id 100 t `shouldBe` (1630580875002 :: Int)
 
   describe "Decision trees for monomial divisibility" $ do
 
-    let xy2 = M.fromList [("X", 1::Int), ("Y", 2)]
-    let x2y = M.fromList [("X", 2), ("Y", 1)]
-    let xyz = M.fromList [("X", 1), ("Y", 1), ("Z", 1)]
+    -- We build a decision tree which associates, to each monomial,
+    -- the largest-numbered monomial that divides it (or 0 if no such
+    -- exists).
+    let xy2 = M.fromList [("X", 1::Int), ("Y", 2)]      -- monomial 1
+    let x2y = M.fromList [("X", 2), ("Y", 1)]           -- monomial 2
+    let xyz = M.fromList [("X", 1), ("Y", 1), ("Z", 1)] -- monomial 3
     let monomials = M.fromList [(xy2, 1::Int), (x2y, 2), (xyz, 3)]
     let f i b = if b then i else 0
-    let d = M.foldlWithKey' (\t m i -> merge max t (mmap (f i) . buildAll $ fmap greaterThanOrEqual m)) (cst 0) monomials
+    let d = M.foldlWithKey' (\t m i -> merge max t (mmap (f i) . decideAll $ fmap greaterThanOrEqual m)) (cst 0) monomials
     let mapAct m = act d (\a -> M.findWithDefault 0 a $ M.fromList m)
 
     it "should get the right monomial for w^2y^4" $ do

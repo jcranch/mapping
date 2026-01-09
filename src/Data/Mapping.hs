@@ -33,24 +33,55 @@ import Data.Void (Void)
 -- values that appear. Given that a value can be associated with a
 -- very large collection of keys, the only folds that normally make
 -- sense are those over idempotent monoids.
-class Foldable m => Mapping k m | m -> k where
+class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
+
+  -- | Form a constant Mapping
   cst :: v -> m v
 
+  -- | Use a Mapping as a function
   act :: m v -> k -> v
 
+  -- | Is the Mapping a constant (and if so with what value)?
   isConst :: Ord v => m v -> Maybe v
 
+  -- | A constrained Traverse
   mtraverse :: (Applicative f, Ord v) => (u -> f v) -> m u -> f (m v)
 
+  -- | A constrained Functor
   mmap :: Ord v => (u -> v) -> m u -> m v
   mmap p = runIdentity . mtraverse (Identity . p)
 
+  -- | Merge two Mappings, valued in an applicative
   mergeA :: (Applicative f, Ord w) => (u -> v -> f w) -> m u -> m v -> f (m w)
 
+  -- | Merge two Mappings
   merge :: Ord w => (u -> v -> w) -> m u -> m v -> m w
   merge p m n = let
     q x y = Identity $ p x y
     in runIdentity $ mergeA q m n
+
+  -- | A monad-like structure
+  bind :: (Ord u, Ord v) => (u -> m v) -> m u -> m v
+  bind f m = let
+    start [] = error "bind: expected some values"
+    start [x] = f x
+    start (x:xs) = let
+      p y z = if y == x then Left z else Right y
+      in continue xs $ merge p m (f x)
+    continue [] _ = error "bind: expected more values"
+    continue [x] n = let
+      p (Left z) _ = z
+      p (Right _) z = z
+      in merge p n (f x)
+    continue (x:xs) n = let
+      p (Left z) _ = Left z
+      p (Right y) z = if y == x then Left z else Right y
+      in continue xs $ merge p n (f x)
+    in start . S.toList $ values m
+
+
+values :: (Mapping k m, Ord v) => m v -> Set v
+values = foldMap S.singleton
 
 
 -- | A simultaneous foldMap over two maps
@@ -105,6 +136,7 @@ instance (Mapping k m, Ord a, Boolean a) => Boolean (AlgebraWrapper k m a) where
 
 -- | Constant functions (on any domain)
 newtype Constant k v = Constant { constantValue :: v }
+  deriving (Eq, Ord)
 
 instance Foldable (Constant k) where
   foldMap f (Constant a) = f a
@@ -112,11 +144,12 @@ instance Foldable (Constant k) where
 instance Mapping k (Constant k) where
   cst = Constant
   act (Constant x) _ = x
+  isConst (Constant x) = Just x
   mmap f (Constant x) = Constant $ f x
   mtraverse f (Constant x) = Constant <$> f x
-  isConst (Constant x) = Just x
   merge f (Constant x) (Constant y) = Constant $ f x y
   mergeA f (Constant x) (Constant y) = Constant <$> f x y
+  bind f (Constant x) = f x
 
 instance Neighbourly (Constant k) where
   neighbours = const S.empty
@@ -168,15 +201,16 @@ instance Traversable OnBool where
 
 instance Mapping Bool OnBool where
   cst x = OnBool x x
-  mmap = fmap
-  mtraverse = traverse
   act (OnBool x _) False = x
   act (OnBool _ x) True = x
   isConst (OnBool x y)
     | x == y    = Just x
     | otherwise = Nothing
+  mmap = fmap
+  mtraverse = traverse
   mergeA h (OnBool x1 y1) (OnBool x2 y2) = liftA2 OnBool (h x1 x2) (h y1 y2)
   merge h (OnBool x1 y1) (OnBool x2 y2) = OnBool (h x1 x2) (h y1 y2)
+  bind f (OnBool u v) = OnBool (onFalse (f u)) (onTrue (f v))
 
 instance Neighbourly OnBool where
   neighbours (OnBool x y)
@@ -200,7 +234,7 @@ deriving via (AlgebraWrapper Bool OnBool b)
 data OnMaybe k m v = OnMaybe {
   onNothing :: v,
   onJust :: m v
-}
+} deriving (Eq, Ord)
 
 instance Foldable m => Foldable (OnMaybe k m) where
   foldMap f (OnMaybe x a) = f x <> foldMap f a
@@ -219,6 +253,7 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
     if x == y then Just x else Nothing
   merge h (OnMaybe x a) (OnMaybe y b) = OnMaybe (h x y) (merge h a b)
   mergeA h (OnMaybe x a) (OnMaybe y b) = liftA2 OnMaybe (h x y) (mergeA h a b)
+  bind f (OnMaybe x m) = OnMaybe (onNothing (f x)) (bind (onJust . f) m)
 
 deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
   instance (Mapping k m, Ord a, Semigroup a) => Semigroup (OnMaybe k m a)
@@ -259,18 +294,31 @@ instance (Mapping k m,
     if x == y then Just x else Nothing
   mergeA h (OnEither f1 g1) (OnEither f2 g2) = liftA2 OnEither (mergeA h f1 f2) (mergeA h g1 g2)
   merge h (OnEither f1 g1) (OnEither f2 g2) = OnEither (merge h f1 f2) (merge h g1 g2)
+  bind f (OnEither u v) = OnEither (bind (onLeft . f) u) (bind (onRight . f) v)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Semigroup a) => Semigroup (OnEither k l m n a)
+  instance (Mapping k m,
+            Mapping l n,
+            Ord a,
+            Semigroup a) => Semigroup (OnEither k l m n a)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Monoid a) => Monoid (OnEither k l m n a)
+  instance (Mapping k m,
+            Mapping l n,
+            Ord a,
+            Monoid a) => Monoid (OnEither k l m n a)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Num a) => Num (OnEither k l m n a)
+  instance (Mapping k m,
+            Mapping l n,
+            Ord a,
+            Num a) => Num (OnEither k l m n a)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m, Mapping l n, Ord a, Boolean a) => Boolean (OnEither k l m n a)
+  instance (Mapping k m,
+            Mapping l n,
+            Ord a,
+            Boolean a) => Boolean (OnEither k l m n a)
 
 
 -- | Maps on pairs
@@ -281,9 +329,13 @@ newtype OnPair k l m n v = OnPair {
 instance (Foldable m, Foldable n) => Foldable (OnPair k l m n) where
   foldMap p (OnPair f) = foldMap (foldMap p) f
 
+instance (FoldableWithIndex k m, FoldableWithIndex l n) => FoldableWithIndex (k,l) (OnPair k l m n) where
+  ifoldMap p (OnPair f) = let
+    h x = ifoldMap (p . (x,))
+    in ifoldMap h f
+
 instance (Mapping k m,
-          Mapping l n,
-          forall v. Ord v => Ord (n v))
+          Mapping l n)
        => Mapping (k, l) (OnPair k l m n) where
   cst x = OnPair . cst $ cst x
   mmap p (OnPair f) = OnPair (mmap (mmap p) f)
@@ -294,16 +346,16 @@ instance (Mapping k m,
   merge h (OnPair f) (OnPair g) = OnPair $ merge (merge h) f g
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Semigroup a, forall v. Ord v => Ord (n v)) => Semigroup (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Ord a, Semigroup a) => Semigroup (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Monoid a, forall v. Ord v => Ord (n v)) => Monoid (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Ord a, Monoid a) => Monoid (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Num a, forall v. Ord v => Ord (n v)) => Num (OnPair k l m n a)
+  instance (Mapping k m, Mapping l n, Ord a, Num a) => Num (OnPair k l m n a)
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) b)
-  instance (Mapping k m, Mapping l n, Ord b, Boolean b, forall v. Ord v => Ord (n v)) => Boolean (OnPair k l m n b)
+  instance (Mapping k m, Mapping l n, Ord b, Boolean b) => Boolean (OnPair k l m n b)
 
 
 -- | A moderately efficient three-way merge amounting to if-then-else

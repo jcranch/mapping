@@ -1,12 +1,11 @@
-{-# LANGUAGE
-      CPP,
-      DerivingVia,
-      MultiParamTypeClasses,
-      OverloadedStrings,
-      RankNTypes,
-      StandaloneDeriving,
-      TupleSections
-  #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Decision diagrams, parametric in the mapping type for the decisions.
 --
@@ -15,209 +14,441 @@
 -- case where m is `BoolMapping` and v is `Bool`. Our algorithms are mostly
 -- straightforward generalisations of those considered there.
 --
+-- Four layers of functions:
+--
+-- 1. Pure memoisation functions
+-- 2. Specialisations to Nodes
+-- 3. Cache-manipulating versions of standard functions
+-- 4. The functionality of Decision
 
 -- TODO
+--  * Monkey with the types a bit? (At least give synonyms for
+--    commonly-used long types). It's painful.
+--  * Add infrastructure to make the monad-valued functionality easier
+--    to use
+--  * Could optimise bind a bit, sharing base
+--  * Do we get any use out of Decision knowing its own cache? I think
+--    we're either keeping control of the caches or using Decision
 --  * Format types of functions better
---  * Decisions go upwards in order currently; should they go
---    downwards, to coincide with lexicographical orderings on maps
---    and hence maybe make smaller decision diagrams?
---    We can use Down if necessary to amend this
 --  * Increase test coverage
 --  * Examples:
 --     - finding optima
 --     - finding random elements
 --    (as examples of the more general functions, already coded, I hope)
---  * Separate out "Base" stuff into other modules?
---  * Documentation
+--  * Documentation!!!
+--  * MonadicMapping
+--  * Make pairMappings a method, since it can be implemented
+--    efficiently for Decision?
 --
 -- MAYBE TO DO
---  * Composition algorithm?
 --  * Optimisation by reordering
 module Data.Mapping.Decision where
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
-#else
-import Control.Applicative (liftA2)
-#endif
 import Control.Monad ((<=<))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (State, StateT, evalStateT, get, modify, runState, state)
 import Data.Algebra.Boolean (Boolean(..))
-import Data.Bifunctor (first)
-import Data.Bijection (Bij)
-import qualified Data.Bijection as B
-import Data.Bits (complement)
-import Data.Bool (bool)
-import Data.Foldable (toList)
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
+import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
-import Data.IntSet (IntSet)
-import qualified Data.IntSet as IS
-import Data.Ord (comparing)
-import Data.Sequence (Seq, (|>))
-import qualified Data.Sequence as Q
-import Data.Set (Set)
+import qualified Data.IntMap.Strict as IM
+import Data.Monoid (All(..), Ap(..), Sum(..))
 import qualified Data.Set as S
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import qualified Data.Map.Merge.Strict as M
-import Data.Mapping.Util (insertIfAbsent)
-import Formatting ((%))
-import qualified Formatting as F
 
 import Data.Mapping
 
 
--- | A node of a decision diagram: which value do we scrutinise, and what do we
--- do with it?
-data Node k m a = Node {
-  nodeDecision :: !a,
-  nodeBranch :: !(m Int)
+
+data Serial a = Serial {
+  serial :: Int,
+  content :: a
 }
 
-deriving instance (Eq a, Eq (m Int)) => Eq (Node k m a)
+instance Eq (Serial a) where
+  Serial i _ == Serial j _ = i == j
 
-deriving instance (Ord a, Ord (m Int)) => Ord (Node k m a)
+
+memoComputeM :: Monad m
+             => (a -> Int)
+             -> (forall s. (a -> StateT s m b) -> a -> StateT s m b)
+             -> a
+             -> m b
+memoComputeM s r = let
+
+  go x = let
+    i = s x
+    inner m = case IM.lookup i m of
+      Just y -> pure y
+      Nothing -> do
+        y <- r go x
+        modify (IM.insert i y)
+        pure y
+    in inner =<< get
+
+  in flip evalStateT IM.empty . go
+
+memoCompute :: (a -> Int)
+            -> (forall s. (a -> State s b) -> a -> State s b)
+            -> a
+            -> b
+memoCompute s r = runIdentity . memoComputeM s r
 
 
--- | A decision diagram (with no preferred starting point), containing
--- leaves (representing final values of the decision process) indexed
--- from -1 downwards, and nodes (representing the need to scrutinise a
--- value) indexed from 0 upwards
-data Base k m a v = Base {
-  leaves :: Seq v,
-  nodes :: Seq (Node k m a)
-}
+-- | Rapid comparison, but it's meaningless: the order depends on the
+-- order of discovery
+instance Ord (Serial a) where
+  compare (Serial i _) (Serial j _) = compare i j
 
-baseLength :: Base k m a v -> Int
-baseLength (Base l m) = Q.length l + Q.length m
+data Node k m a v = Leaf v | Branch a (m (Serial (Node k m a v)))
 
--- | A decision diagram with a starting point
+deriving instance (Eq (m (Serial (Node k m a v))), Eq a, Eq v) => Eq (Node k m a v)
+
+deriving instance (Ord (m (Serial (Node k m a v))), Ord a, Ord v) => Ord (Node k m a v)
+
+newtype Cache a = Cache (Map a (Serial a))
+
+stash :: Ord a => a -> State (Cache a) (Serial a)
+stash x = let
+  f (Cache m) = let
+    g Nothing = let
+      s = Serial (M.size m) x
+      in (s, Just s)
+    g (Just s) = (s, Just s)
+    in Cache <$> M.alterF g x m
+  in state f
+
+makeLeaf :: (forall x. Ord x => Ord (m x), Ord a, Ord v) => v -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+makeLeaf = stash . Leaf
+
+makeBranch :: (Mapping k m, Ord a, Ord v) => a -> m (Serial (Node k m a v)) -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+makeBranch a n = case isConst n of
+  Just s -> pure s
+  Nothing -> stash (Branch a n)
+
+-- |
+--
+-- Notes:
+--
+-- 1. The FoldableWithIndex instance can produce very large outputs
+-- even with a modest-sized decision diagram.
+--
+-- 2. The traverse and mergeA methods are very inefficient, and can
+-- visit notes an exponential number of times (see documentation for
+-- `traverseS`), but the mmap, foldMap and merge methods visit each
+-- node only once.
+--
+-- 3. If you know two Decisions have been built from the same cache,
+-- then comparing the serial numbers of their start node is a better
+-- equality test than the more generic one provided.
 data Decision k m a v = Decision {
-  base :: !(Base k m a v),
-  start :: !Int
+  start :: Serial (Node k m a v),
+  cache :: Cache (Node k m a v)
 }
 
-decisionLength :: Decision k m a v -> Int
-decisionLength = baseLength . base
 
--- | A value for every node of a base
-data BaseMap v = BaseMap {
-  onLeaves :: Seq v,
-  onNodes :: Seq v
-}
+-- | a Serial-specialised memoCompute
+recurseMap :: (v -> x)
+           -> (forall z s. (z -> State s x) -> a -> m z -> State s x)
+           -> Serial (Node k m a v)
+           -> x
+recurseMap p q = let
+  r f s = case content s of
+    Leaf v -> pure (p v)
+    Branch a m -> q f a m
+  in memoCompute serial r
 
--- | Index a BaseMap
-bindex :: BaseMap v -> Int -> v
-bindex (BaseMap l m) x
-  | x < 0     = Q.index l $ complement x
-  | otherwise = Q.index m x
-
-
--- | Close a set under an operation
-closure :: (Int -> IntSet) -> IntSet -> IntSet
-closure f = let
-  inner old new = case IS.minView new of
-    Nothing -> old
-    Just (x, new') -> let
-      old' = IS.insert x old
-      in inner old' (new' `IS.union` (f x `IS.difference` old'))
-  in inner IS.empty
+-- | a Serial-specialised memoComputeM
+recurseMapM :: Monad n
+            => (v -> n x)
+            -> (forall z s. (z -> StateT s n x) -> a -> m z -> StateT s n x)
+            -> Serial (Node k m a v)
+            -> n x
+recurseMapM p q = let
+  r f s = case content s of
+    Leaf v -> lift (p v)
+    Branch a m -> q f a m
+  in memoComputeM serial r
 
 
--- | A general kind of recursive function on a Base
-baseRecurse :: (Ord c,
-                Mapping k m)
-            => (v -> c)
-               -- ^ What to do on a value
-            -> (a -> m c -> c)
-               -- ^ What do do on a node
-            -> Base k m a v
-               -- ^ Input base
-            -> BaseMap c
-baseRecurse p q (Base l m) = let
-  l' = p <$> l
-  f v (Node x n) = v |> q x (mmap (bindex (BaseMap l' v)) n)
-  in BaseMap l' $ foldl f Q.empty m
 
--- | A general kind of recursive function on a Decision
-decisionRecurse :: (Ord c,
-                    Mapping k m)
-                 => (v -> c)
-                 -- ^ What to do on a value
-                 -> (a -> m c -> c)
-                 -- ^ What do do on a node
-                 -> Decision k m a v
-                 -- ^ Input decision
-                 -> c
-decisionRecurse p q (Decision b s) = bindex (baseRecurse p q b) s
+-- | A function Int -> Int -> Int which is injective on pairs of
+-- nonnegative integers
+pairIntegers :: Int -> Int -> Int
+pairIntegers i j = (((i+j)*(i+j+1)) `div` 2) + j
 
 
--- | A general counting function
-generalCounts :: (Ord a, Ord n, Mapping k m)
-              => (a -> a -> Int)
-                 -- ^ In the list of decisions, how far apart are these?
-              -> a
-                 -- ^ The first possible decision
-              -> a
-                 -- ^ The last possible decision
-              -> (v -> n)
-                 -- ^ The count of a value
-              -> (m n -> n)
-                 -- ^ How to combine counts at a node
-              -> Decision k m a v
-                 -- ^ The input decision diagram
-              -> n
-                 -- ^ The count
-generalCounts d x0 x1 onVal combine = let
-  d' Nothing Nothing = 2 + d x0 x1
-  d' Nothing (Just y) = 1 + d x0 y
-  d' (Just x) Nothing = 1 + d x x1
-  d' (Just x) (Just y) = d x y
-  p x (y, a) = let
-    q 1 v = v
-    q n v = q (n-1) . combine $ cst v
-    in q (d' x y) a
-  f x = (Nothing, onVal x)
-  g a m = let
-    b = Just a
-    in (b, combine $ mmap (p b) m)
-  in p Nothing . decisionRecurse f g
+instance (Mapping k m, Ord a, Eq v) => Eq (Decision k m a v) where
+  a == b = getAll $ pairMappings (\x y -> All (x == y)) a b
+-- test pointer equality first
 
--- | How many values are true in a decision diagram with integer leaves?
-numberTrueGeneral :: Mapping k m => (m Integer -> Integer) -> Int -> Int -> Decision k m Int Bool -> Integer
-numberTrueGeneral g x0 x1 = let
-  f a = if a then 1 else 0
-  in generalCounts subtract x0 x1 f g
+instance (Mapping k m, Ord a, Ord v) => Ord (Decision k m a v) where
+  compare = pairMappings compare
 
--- | How many values are True in a binary decision diagram with integer leaves?
-numberTrue :: Int -> Int -> Decision Bool OnBool Int Bool -> Integer
-numberTrue = numberTrueGeneral sum
 
--- | Assignments of variables that result in True
-chunksTrue :: (Mapping k m, FoldableWithIndex k m, Ord k, Ord a) => Decision k m a Bool -> [Map a k]
-chunksTrue = let
-  f False = []
-  f True = [M.empty]
-  g a = ifoldMap (\x -> fmap (M.insert a x))
-  in decisionRecurse f g
+instance Foldable m => Foldable (Decision k m a) where
 
--- | All true values (may be a very long list even for reasonable Decisions)
-listTrue :: forall k m a.
-           (Mapping k m,
-            FoldableWithIndex k m,
-            Ord k,
-            Ord a)
-         => Set a
-         -> Decision k m a Bool
-         -> [Map a k]
-listTrue s = let
-  m = M.fromSet (const ()) s
-  u = ifoldMap (\i _ -> [i]) $ cst @k @m ()
-  fillIn = let
-    onL = M.traverseMissing (\_ () -> u)
-    onR = M.mapMissing (const (error "Expected a key"))
-    onB = M.zipWithMatched (\_ () -> id)
-    in M.mergeA onL onR onB
-  in fillIn m <=< chunksTrue
+  foldMap f = let
+    p g _ = getAp . foldMap (Ap . g)
+    in recurseMap f p . start
+
+runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v)) -> Decision k m a v
+runOnEmptyCache r = uncurry Decision . runState r $ Cache M.empty
+
+
+mapS :: (Mapping k m, Ord a, Ord v)
+     => (u -> v)
+     -> Serial (Node k m a u)
+     -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+mapS f = let
+  q r a = lift . makeBranch a <=< mtraverse r
+  in recurseMapM (makeLeaf . f) q
+
+
+-- | It's far from clear whether it's possible or not to do a general
+-- traverse fast in this setting. This algorithm is slow (it may visit
+-- nodes an exponential number of times).
+traverseS :: (Mapping k m, Ord a, Ord v, Applicative f)
+          => (u -> f v)
+          -> Serial (Node k m a u)
+          -> f (State (Cache (Node k m a v)) (Serial (Node k m a v)))
+traverseS p = let
+  inner s = case content s of
+    Leaf v -> makeLeaf <$> p v
+    Branch a m -> fmap (makeBranch a =<<) . getCompose $ mtraverse (Compose . inner) m
+  in inner
+
+
+mergeS :: (Mapping k m, Ord a, Ord w)
+       => (u -> v -> w)
+       -> Serial (Node k m a u)
+       -> Serial (Node k m a v)
+       -> State (Cache (Node k m a w)) (Serial (Node k m a w))
+mergeS f = let
+  pairSerial (Serial i _, Serial j _) = pairIntegers i j
+
+  recurse r (s,t) = case (content s, content t) of
+    (Leaf u, Leaf v) -> lift . makeLeaf $ f u v
+    (Leaf _, Branch b n) -> lift . makeBranch b =<< mtraverse (r . (s,)) n
+    (Branch a m, Leaf _) -> lift . makeBranch a =<< mtraverse (r . (,t)) m
+    (Branch a m, Branch b n) -> case compare a b of
+      LT -> lift . makeBranch a =<< mtraverse (r . (,t)) m
+      GT -> lift . makeBranch b =<< mtraverse (r . (s,)) n
+      EQ -> lift . makeBranch a =<< mergeA (curry r) m n
+  in curry $ memoComputeM pairSerial recurse
+
+
+-- | Just as for traverseS, this setting makes it seem unlikely that
+-- an efficient algorithm will be possible.
+mergeAS :: (Mapping k m, Ord a, Ord w, Applicative f)
+        => (u -> v -> f w)
+        -> Serial (Node k m a u)
+        -> Serial (Node k m a v)
+        -> f (State (Cache (Node k m a w)) (Serial (Node k m a w)))
+mergeAS f = let
+  inner s t = case (content s, content t) of
+    (Leaf u, Leaf v) -> makeLeaf <$> f u v
+    (Leaf _, Branch b n) -> fmap (makeBranch b =<<) . getCompose $ mtraverse (Compose . inner s) n
+    (Branch a m, Leaf _) -> fmap (makeBranch a =<<) . getCompose $ mtraverse (Compose . flip inner t) m
+    (Branch a m, Branch b n) -> case compare a b of
+      LT -> fmap (makeBranch a =<<) . getCompose $ mtraverse (Compose . flip inner t) m
+      GT -> fmap (makeBranch b =<<) . getCompose $ mtraverse (Compose . inner s) n
+      EQ -> fmap (makeBranch a =<<) . getCompose $ mergeA (\c -> Compose . inner c) m n
+  in inner
+
+instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
+
+  cst x = let
+    n = Leaf x
+    s = Serial 0 n
+    in Decision s (Cache (M.singleton n s))
+
+  isConst (Decision (Serial _ (Leaf x)) _) = Just x
+  isConst (Decision (Serial _ (Branch _ _)) _) = Nothing
+
+  act = let
+    inner (Leaf x) _ = x
+    inner (Branch a m) f = inner (content (act m (f a))) f
+    in inner . content . start
+
+  mmap p = runOnEmptyCache . mapS p . start
+
+  mtraverse p = fmap runOnEmptyCache . traverseS p . start
+
+  merge p a b = runOnEmptyCache $ mergeS p (start a) (start b)
+
+  mergeA p a b = runOnEmptyCache <$> mergeAS p (start a) (start b)
+
+
+instance (Ord a, Mapping k m, Neighbourly m) => Neighbourly (Decision k m a) where
+
+  neighbours = let
+
+    serial (Left (Serial i _)) = pairIntegers i 0
+    serial (Right (Serial i _, Serial j _)) = pairIntegers i (j+1)
+
+    -- find neighbours in a node
+    p r (Left s) = case content s of
+      Leaf _ -> pure S.empty
+      Branch _ m -> do
+        now <- getAp . foldMap (Ap . r . Right) $ neighbours m
+        later <- getAp $ foldMap (Ap . r . Left) m
+        pure (now <> later)
+    -- find common values in two nodes
+    p r (Right (s,t)) = case (content s, content t) of
+      (Leaf u, Leaf v) -> pure $ if u == v then S.empty else S.singleton (u,v)
+      (Leaf _, Branch _ n) -> getAp $ foldMap (Ap . r . Right . (s,)) n
+      (Branch _ m, Leaf _) -> getAp $ foldMap (Ap . r . Right . (,t)) m
+      (Branch a m, Branch b n) -> case compare a b of
+        LT -> getAp $ foldMap (Ap . r . Right . (,t)) m
+        GT -> getAp $ foldMap (Ap . r . Right . (s,)) n
+        EQ -> let
+          q x y = Ap . r $ Right (x,y)
+          in getAp $ pairMappings q m n
+
+    in memoCompute serial p . Left . start
+
+
+instance (Ord a, FoldableWithIndex k m, Mapping k m) => FoldableWithIndex (Map a k) (Decision k m a) where
+
+  ifoldMap f = let
+    inner m (Leaf x) = f m x
+    inner m (Branch a n) = let
+      g k = inner (M.insert a k m) . content
+      in ifoldMap g n
+    in inner M.empty . content . start
+
+
+-- | Find all assignments of variables that pass the test
+--
+-- Even for modest-sized decision diagrams, this can produce some very
+-- large outputs!
+satisfyingAssignments :: (Ord a, FoldableWithIndex k m) => (v -> Bool) -> Decision k m a v -> [Map a k]
+satisfyingAssignments t = let
+  p x = if t x then [M.empty] else []
+  q f a = let
+    h k = Ap . fmap (fmap (M.insert a k)) . f
+    in getAp . ifoldMap h
+  in recurseMap p q . start
+
+trueAssignments :: (Ord a, FoldableWithIndex k m) => Decision k m a Bool -> [Map a k]
+trueAssignments = satisfyingAssignments id
+
+
+generalCount :: (Mapping k m)
+             => (a -> Int)
+                -- ^ The serial number of a decision
+             -> Int
+                -- ^ The number of decisions
+             -> (v -> n)
+                -- ^ The count of a value
+             -> (forall f z. Applicative f => (z -> f n) -> m z -> f n)
+                -- ^ How to combine counts at a node
+             -> Decision k m a v
+                -- ^ The input decision diagram
+             -> n
+                -- ^ The count
+generalCount s n c d = let
+
+  step i (j,x)
+    | i+1 == j = x
+    | otherwise = step i (j-1, runIdentity $ d Identity (cst x))
+
+  p v = (n, c v)
+
+  q f a = let
+    i = s a
+    in fmap (i,) . d (fmap (step i) . f)
+
+  in step (-1) . recurseMap p q . start
+
+
+foldingCount :: (Mapping k m, Num n)
+             => (a -> Int)
+                -- ^ The serial number of a decision
+             -> Int
+                -- ^ The number of decisions
+             -> (v -> n)
+                -- ^ The count of a value
+             -> Decision k m a v
+                -- ^ The input decision diagram
+             -> n
+                -- ^ The count
+foldingCount s n c = let
+  q f = fmap getSum . getAp . foldMap (Ap . fmap Sum . f)
+  in generalCount s n c q
+
+foldingCountTrue :: (Mapping k m, Num n)
+                 => (a -> Int)
+                    -- ^ The serial number of a decision
+                 -> Int
+                    -- ^ The number of decisions
+                 -> Decision k m a Bool
+                    -- ^ The input decision diagram
+                 -> n
+                    -- ^ The count
+foldingCountTrue s n = foldingCount s n (\x -> if x then 1 else 0)
+
+genTestS :: (Ord a, Ord b, Boolean b) => a -> State (Cache (Node Bool OnBool a b)) (Serial (Node Bool OnBool a b))
+genTestS x = do
+  n0 <- makeLeaf false
+  n1 <- makeLeaf true
+  makeBranch x $ OnBool n0 n1
+
+-- | A building block for BDDs - tests if a variable is true
+genTest :: (Ord a, Ord b, Boolean b) => a -> Decision Bool OnBool a b
+genTest = runOnEmptyCache . genTestS
+
+-- | Test if a variable is true (specialised to `Bool`)
+test :: Ord a => a -> Decision Bool OnBool a Bool
+test = genTest
+
+
+-- | Make a single decision
+decisionS :: (Mapping k m, Ord a, Ord v) => a -> m v -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+decisionS a m = makeBranch a =<< mtraverse makeLeaf m
+
+decision :: (Mapping k m, Ord a, Ord v) => a -> m v -> Decision k m a v
+decision a = runOnEmptyCache . decisionS a
+
+
+decideAllS :: (Mapping k m, Ord a) => Map a (m Bool) -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
+decideAllS = let
+  begin [] = makeLeaf True
+  begin l = do
+    f <- makeLeaf False
+    t <- makeLeaf True
+    continue f t l
+  continue _ u [] = pure u
+  continue f u ((a,m):xs) = do
+    v <- makeBranch a (mmap (\i -> if i then u else f) m)
+    continue f v xs
+  in begin . M.toDescList
+
+decideAll :: (Mapping k m, Ord a) => Map a (m Bool) -> Decision k m a Bool
+decideAll = runOnEmptyCache . decideAllS
+
+
+decideAnyS :: (Mapping k m, Ord a) => Map a (m Bool) -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
+decideAnyS = let
+  begin [] = makeLeaf False
+  begin l = do
+    t <- makeLeaf True
+    f <- makeLeaf False
+    continue t f l
+  continue _ u [] = pure u
+  continue t u ((a,m):xs) = do
+    v <- makeBranch a (mmap (\i -> if i then t else u) m)
+    continue t v xs
+  in begin . M.toDescList
+
+decideAny :: (Mapping k m, Ord a) => Map a (m Bool) -> Decision k m a Bool
+decideAny = runOnEmptyCache . decideAnyS
+
+
+
+{-
 
 -- | What is the best assignment of keys to values resulting in a
 -- value on which `p` is `True`?
@@ -226,101 +457,6 @@ bestSuchThat p q = let
   f x = if p x then Just ([], x) else Nothing
   g i = uncurry (\x -> fmap (first ((i,x):))) <=< q i
   in decisionRecurse f g
-
--- | Build a sequence from key-value pairs; we take on trust that all
--- values are represented once.
-fromKeyVals :: (Foldable f) => f (Int,a) -> Seq a
-fromKeyVals = fmap snd . Q.sortBy (comparing fst) . Q.fromList . toList
-
-
--- | A data structure for work-in-progress decision diagrams
-data Builder o k m a v = Builder {
-  leavesMap :: Map v Int,
-  nodesMap :: Map (Node k m a) Int,
-  fromOld :: Map o Int
-}
-
-emptyBuilder :: Builder o k m a v
-emptyBuilder = Builder M.empty M.empty M.empty
-
-addLeaf :: (Ord o,
-            Ord v)
-        => v
-        -> o
-        -> Builder o k m a v
-        -> Builder o k m a v
-addLeaf x y (Builder l m o) = let
-  i = complement (M.size l)
-  (j, s) = insertIfAbsent x i l
-  o' = M.insert y j o
-  in case s of
-    Nothing -> Builder l m o'
-    Just l' -> Builder l' m o'
-
-addNode :: (Ord o,
-            Ord (m Int),
-            Ord a,
-            Mapping k m)
-        => a
-        -> m o
-        -> o
-        -> Builder o k m a v
-        -> Builder o k m a v
-addNode r a y (Builder l m o) = let
-  b = mmap (o M.!) a
-  in case isConst b of
-    Just j -> Builder l m (M.insert y j o)
-    Nothing -> let
-      i = M.size m
-      (j, s) = insertIfAbsent (Node r b) i m
-      o' = M.insert y j o
-      in case s of
-        Nothing -> Builder l m o'
-        Just m' -> Builder l m' o'
-
-makeBuilder :: (Mapping k m,
-                Ord o,
-                Ord (m Int),
-                Ord a,
-                Ord v)
-             => Map o v
-             -> Map o (a, m o)
-             -> Builder o k m a v
-makeBuilder l m = let
-  b0 = emptyBuilder
-  makeL b i x = addLeaf x i b
-  b1 = M.foldlWithKey' makeL b0 l
-  makeN b i (r, o) = addNode r o i b
-  b2 = M.foldlWithKey' makeN b1 m
-  in b2
-
-buildBase :: Builder o k m a v -> Base k m a v
-buildBase (Builder l m _) = let
-  l' = fromKeyVals . fmap (\(x,i) -> (complement i,x)) $ M.toList l
-  m' = fromKeyVals . fmap (\(x,i) -> (i,x)) $ M.toList m
-  in Base l' m'
-
-buildDecision :: Ord o => o -> Builder o k m a v -> Decision k m a v
-buildDecision s b@(Builder _ _ o) = Decision (buildBase b) (o M.! s)
-
--- | A decision tree based on a single decision
-singleNode :: (Mapping k m, Ord (m Int), Ord a, Ord v) => a -> m v -> Decision k m a v
-singleNode r n = let
-  f b x = addLeaf x (Just x) b
-  d = addNode r (mmap Just n) Nothing $ foldl f emptyBuilder n
-  in buildDecision Nothing d
-
--- | A building block for BDD's - tests if a variable is true
-genTest :: Boolean b => a -> Decision Bool OnBool a b
-genTest r = let
-  l = Q.fromList [false, true]
-  m = pure . Node r $ OnBool (-1) (-2)
-  s = 0
-  in Decision (Base l m) s
-
--- | Test if a variable is true (specialised to `Bool`)
-test :: a -> Decision Bool OnBool a Bool
-test = genTest
 
 
 -- | Rapidly take the conjunction of the inputs
@@ -343,310 +479,64 @@ buildAny d = let
     pure (Node r (mmap (bool (i-1) (-2)) n))
   in Decision (Base l m) (s-1)
 
-
--- | Traverse bases
-baseTraverse :: (Applicative f, Ord a, Ord (m Int), Ord w, Mapping k m) => (v -> f w) -> Base k m a v -> f (Builder Int k m a w)
-baseTraverse p (Base l m) = let
-  t0 = pure emptyBuilder
-
-  t1 = let
-    f b i x = liftA2 (\b' px' -> addLeaf px' (complement i) b') b (p x)
-    in Q.foldlWithIndex f t0 l
-
-  t2 = let
-    f b i (Node r d) = addNode r d i <$> b
-    in Q.foldlWithIndex f t1 m
-
-  in t2
+-}
 
 
--- | Map bases
-baseMap :: (Ord a, Ord (m Int), Ord w, Mapping k m) => (v -> w) -> Base k m a v -> Builder Int k m a w
-baseMap p = runIdentity . baseTraverse (Identity . p)
+debugShowCache :: Mapping k m => (Show a, Show v, Show (m Int)) => Cache (Node k m a v) -> [String]
+debugShowCache (Cache c) = let
+
+  entries = IM.fromList [(serial s,content s) | s <- M.elems c]
+
+  padding = length (show (M.size c - 1))
+
+  makeLine (n, s) = let
+    lspace = replicate (padding - length (show n)) ' '
+    rest = case s of
+      Leaf v -> "Leaf " <> showsPrec 9 v ""
+      Branch a m -> "Branch " <> showsPrec 9 a "" <> " " <> showsPrec 9 (mmap serial m) ""
+    in lspace <> show n <> ": " <> rest
+
+  in makeLine <$> IM.assocs entries
+
+-- | Output the structure of a Decision
+debugShow :: Mapping k m => (Show a, Show v, Show (m Int)) => Decision k m a v -> String
+debugShow (Decision (Serial s _) c) = let
+  prefix i = ((if i == s then "* " else "  ") <>)
+  in unlines [prefix i l | (i,l) <- zip [0..] (debugShowCache c)]
 
 
--- | A more general map for `Base`, where the shape of nodes can change
-baseTransform ::    (Ord a, Ord (n Int), Mapping l n, Ord w)
-                 => (v -> w)
-                 -> (forall x. a -> m x -> n x)
-                 -> Base k m a v
-                 -> IntSet
-                 -> Builder Int l n a w
-baseTransform p q (Base l m) = let
+restrictS :: (Mapping k m, Ord a, Ord v)
+          => (a -> Maybe k)
+          -> Serial (Node k m a v)
+          -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+restrictS f = let
+  q r a m = case f a of
+    Just b -> r $ act m b
+    Nothing -> lift . makeBranch a =<< mtraverse r m
+  in recurseMapM makeLeaf q
 
-  close aL aN s = case IS.maxView s of
-   Nothing -> makeBuilder aL aN
-   Just (i, s') -> if i < 0
-     then let
-       x = p (Q.index l $ complement i)
-       in close (M.insert i x aL) aN s'
-     else let
-       Node r n = Q.index m i
-       o = q r n
-       s'' = IS.union s' . IS.fromList $ toList o
-       in close aL (M.insert i (r, o) aN) s''
-
-  in close M.empty M.empty
-
-
--- | A more general map for `Decision`, where the shape of nodes can change
-decisionTransform :: (Mapping l n,
-                      Ord (n Int),
-                      Ord a,
-                      Ord w)
-                   => (v -> w)
-                   -> (forall x. a -> m x -> n x)
-                   -> Decision k m a v
-                   -> Decision l n a w
-decisionTransform p q (Decision b s) = let
-  in buildDecision s $ baseTransform p q b (IS.singleton s)
-
-
--- | Fill in some values of a map
+-- | Simplify a Decision by fill in some values in advance
 -- > act (restrict h d) f = let
 -- >   f' x = case h x of
 -- >     Just y  -> y
 -- >     Nothing -> f x
 -- >   in act d f'
-restrict :: (Ord (m Int), Ord v, Ord a, Mapping k m) => (a -> Maybe k) -> Decision k m a v -> Decision k m a v
-restrict f = let
-  g x m = case f x of
-    Nothing -> m
-    Just c -> cst (act m c)
-  in decisionTransform id g
-
-
--- | A general function for merging bases
-baseGenMerge ::    (Ord a, Ord w, Ord (o Int), Mapping l o)
-                => (u -> v -> w)
-                -> (forall x . Ord x => a -> m x -> o x)
-                -> (forall y . Ord y => a -> n y -> o y)
-                -> (forall x y. (Ord x, Ord y) => a -> m x -> n y -> o (x, y))
-                -> Base h m a u -> Base k n a v -> Set (Int, Int) -> Builder (Int, Int) l o a w
-baseGenMerge pLL pNL pLN pNN (Base l1 m1) (Base l2 m2) = let
-
-  close aLL aNL aLN aNN s = case S.maxView s of
-    Nothing -> make aLL aNL aLN aNN
-    Just ((i1, i2), s') -> case (i1 < 0, i2 < 0) of
-      ( True,  True) -> let
-        x = pLL (Q.index l1 $ complement i1) (Q.index l2 $ complement i2)
-        in close (M.insert (i1, i2) x aLL) aNL aLN aNN s'
-      ( True, False) -> let
-        Node r2 n2 = Q.index m2 i2
-        o = mmap (i1,) $ pLN r2 n2
-        s'' = S.union s' . S.fromList $ toList o
-        in close aLL aNL (M.insert (i1, i2) (r2, o) aLN) aNN s''
-      (False,  True) -> let
-        Node r1 n1 = Q.index m1 i1
-        o = mmap (,i2) $ pNL r1 n1
-        s'' = S.union s' . S.fromList $ toList o
-        in close aLL (M.insert (i1, i2) (r1, o) aNL) aLN aNN s''
-      (False, False) -> let
-        Node r1 n1 = Q.index m1 i1
-        Node r2 n2 = Q.index m2 i2
-        (r, o) = case compare r1 r2 of
-          LT -> (r1, mmap (,i2) $ pNL r1 n1)
-          GT -> (r2, mmap (i1,) $ pLN r2 n2)
-          EQ -> (r1, pNN r1 n1 n2)
-        s'' = S.union s' . S.fromList $ toList o
-        in close aLL aNL aLN (M.insert (i1, i2) (r, o) aNN) s''
-
-  make aLL aNL aLN aNN = let
-
-    b0 = emptyBuilder
-
-    makeL b (i, j) x = addLeaf x (i, j) b
-    b1 = M.foldlWithKey' makeL b0 aLL
-
-    makeN b (i, j) (r, o) = addNode r o (i, j) b
-    b2 = M.foldlWithKey' makeN b1 aNL
-    b3 = M.foldlWithKey' makeN b2 aLN
-    b4 = M.foldlWithKey' makeN b3 aNN
-    in b4
-
-  in close M.empty M.empty M.empty M.empty
-
-
--- | Merge two bases in an applicative functor
-baseMergeA ::    (Applicative f, Ord a, Ord w, Ord (m Int), Mapping k m)
-              => (u -> v -> f w)
-              -> Base k m a u -> Base k m a v -> Set (Int, Int) -> f (Builder (Int, Int) k m a w)
-baseMergeA p (Base l1 m1) (Base l2 m2) = let
-
-  close aLL aNL aLN aNN s = case S.maxView s of
-    Nothing -> make aLL aNL aLN aNN
-    Just ((i1, i2), s') -> case (i1 < 0, i2 < 0) of
-      ( True,  True) -> let
-        x = p (Q.index l1 $ complement i1) (Q.index l2 $ complement i2)
-        in close (M.insert (i1, i2) x aLL) aNL aLN aNN s'
-      ( True, False) -> let
-        Node r2 n2 = Q.index m2 i2
-        o = mmap (i1,) n2
-        s'' = S.union s' . S.fromList $ toList o
-        in close aLL aNL (M.insert (i1, i2) (r2, o) aLN) aNN s''
-      (False,  True) -> let
-        Node r1 n1 = Q.index m1 i1
-        o = mmap (,i2) n1
-        s'' = S.union s' . S.fromList $ toList o
-        in close aLL (M.insert (i1, i2) (r1, o) aNL) aLN aNN s''
-      (False, False) -> let
-        Node r1 n1 = Q.index m1 i1
-        Node r2 n2 = Q.index m2 i2
-        (r,o) = case compare r1 r2 of
-          LT -> (r1, mmap (,i2) n1)
-          GT -> (r2, mmap (i1,) n2)
-          EQ -> (r1, merge (,) n1 n2)
-        s'' = S.union s' . S.fromList $ toList o
-        in close aLL aNL aLN (M.insert (i1, i2) (r, o) aNN) s''
-
-  make aLL aNL aLN aNN = let
-
-    b0 = pure emptyBuilder
-
-    makeL b (i, j) = liftA2 (\b' x'-> addLeaf x' (i, j) b') b
-    b1 = M.foldlWithKey' makeL b0 aLL
-
-    makeN b (i, j) (r, o) = addNode r o (i, j) <$> b
-    b2 = M.foldlWithKey' makeN b1 aNL
-    b3 = M.foldlWithKey' makeN b2 aLN
-    b4 = M.foldlWithKey' makeN b3 aNN
-    in b4
-
-  in close M.empty M.empty M.empty M.empty
-
-
--- | Merge two bases
-baseMerge ::    (Ord a, Ord w, Ord (m Int), Mapping k m)
-             => (u -> v -> w)
-             -> Base k m a u -> Base k m a v -> Set (Int, Int) -> Builder (Int, Int) k m a w
-baseMerge p b1 b2 = let
-  p' x y = Identity $ p x y
-  in runIdentity . baseMergeA p' b1 b2
-
-
--- | Folds over *all* the leaves; not something you want to do to an
--- arbitrary base
-instance Foldable (Base k m a) where
-  foldMap p = foldMap p . leaves
-
-instance Foldable m => Foldable (Decision k m a) where
-  foldMap p (Decision (Base l m) s) = let
-    inner x old new = case IS.minView new of
-      Nothing        -> x
-      Just (i, new') -> if i < 0
-        then inner (x <> p (Q.index l (complement i))) (IS.insert i old) new'
-        else let
-          old' = IS.insert i old
-          extra = IS.difference (IS.fromList . toList . nodeBranch $ Q.index m i) old'
-          in inner x old' (IS.union new' extra)
-    in inner mempty IS.empty $ IS.singleton s
-
-instance (Ord a, Ord (m Int), Mapping k m) => Mapping (a -> k) (Decision k m a) where
-
-  cst x = Decision (Base (Q.singleton x) Q.empty) (-1)
-
-  act (Decision (Base l n) s) f = let
-    inner i
-      | i < 0 = Q.index l $ complement i
-      | otherwise = let
-          Node a m = Q.index n i
-          in inner . act m $ f a
-    in inner s
-
-  -- We assume the diagram is optimised, so it is constant only if it starts
-  -- with a leaf.
-  isConst (Decision (Base l _) s)
-    | s < 0     = Just . Q.index l $ complement s
-    | otherwise = Nothing
-
-  mtraverse p (Decision (Base l m) s) = buildDecision s <$> baseTraverse p (Base l m)
-
-  mmap p (Decision b s) = buildDecision s $ baseMap p b
-
-  merge p (Decision b1 s1) (Decision b2 s2) = buildDecision (s1, s2) $ baseMerge p b1 b2 (S.singleton (s1, s2))
-
-  mergeA p (Decision b1 s1) (Decision b2 s2) = buildDecision (s1, s2) <$> baseMergeA p b1 b2 (S.singleton (s1, s2))
+restrict :: (Mapping k m, Ord a, Ord v)
+         => (a -> Maybe k)
+         -> Decision k m a v
+         -> Decision k m a v
+restrict f = runOnEmptyCache . restrictS f . start
 
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Semigroup v) => Semigroup (Decision k m a v)
+  instance (Mapping k m, Ord a, Ord v, Semigroup v) => Semigroup (Decision k m a v)
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Monoid v) => Monoid (Decision k m a v)
+  instance (Mapping k m, Ord a, Ord v, Monoid v) => Monoid (Decision k m a v)
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Num v) => Num (Decision k m a v)
+  instance (Mapping k m, Ord a, Ord v, Num v) => Num (Decision k m a v)
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord (m Int), Ord a, Ord v, Boolean v) => Boolean (Decision k m a v)
-
-
--- | Attempt to extend to a bijection
-checkBijection :: (Eq a, Eq v, Mapping k m) => Base k m a v -> Base k m a v -> Bij -> Maybe Bij
-checkBijection (Base l1 m1) (Base l2 m2) = let
-  consequences i j = case (i < 0, j < 0) of
-    (True, True) -> if Q.index l1 (complement i) == Q.index l2 (complement j)
-      then Just B.empty
-      else Nothing
-    (False, False) -> let
-      Node r1 o1 = Q.index m1 i
-      Node r2 o2 = Q.index m2 j
-      in if r1 == r2
-        then B.getMaybeBij $ pairMappings B.msingleton o1 o2
-        else Nothing
-    _ -> Nothing
-  in B.closeBijection consequences
-
--- | Are these Decisions isomorphic?
-findBijection :: (Eq a, Eq v, Mapping k m) => Decision k m a v -> Decision k m a v -> Maybe Bij
-findBijection (Decision b1 s1) (Decision b2 s2) = checkBijection b1 b2 (B.singleton s1 s2)
-
-instance (Eq a, Eq v, Mapping k m) => Eq (Decision k m a v) where
-  u == v = case findBijection u v of
-    Just _ -> True
-    Nothing -> False
-
-
--- | A ludicrously short definition!
-instance (Ord a, Ord v, Ord (m Int), Mapping k m) => Ord (Decision k m a v) where
-  compare = pairMappings compare
-
-
--- | Output the structure of a Decision
-debugShow :: (Show a, Show v, Show (m Int)) => Decision k m a v -> String
-debugShow (Decision (Base l m) s) = let
-
-  p = 1 + max (1 + length (show (Q.length l))) (length (show (1 + Q.length m)))
-
-  prefix i = ((if i == s then "->" else "  ") <>)
-
-  leafLine t i x = let
-    j = complement i
-    in prefix j (F.formatToString (F.left p ' ' % ": " % F.shown % "\n") j x) <> t
-
-  nodeLine i (Node r n) t =
-    prefix i (F.formatToString (F.left p ' ' % ": " % F.shown % "; " % F.shown % "\n") i r n) <> t
-
-  in Q.foldlWithIndex leafLine (Q.foldrWithIndex nodeLine "" m) l
-
-
-instance (Mapping k m,
-          Neighbourly m,
-          Ord a,
-          Ord (m Int))
-       => Neighbourly (Decision k m a) where
-  neighbours (Decision (Base l m) s) = let
-    f v (Node _ n) = let
-      here = let
-        b = Base l m
-        e (i, j) = S.filter (uncurry (/=)) $ mutualValues (Decision b i) (Decision b j)
-        in foldMap e $ neighbours n
-      there = let
-        g i
-          | i < 0     = mempty
-          | otherwise = Q.index v i
-        in foldMap g n
-      in v |> (here <> there)
-    in Q.index (foldl f Q.empty m) s
-
+  instance (Mapping k m, Ord a, Ord v, Boolean v) => Boolean (Decision k m a v)
 

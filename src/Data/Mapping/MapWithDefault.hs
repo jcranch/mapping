@@ -75,6 +75,15 @@ instance Ord k => Mapping k (MapWithDefault k) where
     t = M.zipWithMaybeMatched h'
     combine = M.merge l r t
     in MapWithDefault c $ combine f g
+  bind f (MapWithDefault a m) = let
+    MapWithDefault b n = f a
+    g k x
+      | y == b    = Nothing
+      | otherwise = Just y where
+          y = act (f x) k
+    h k x _ = g k x
+    combine = M.merge (M.mapMaybeMissing g) M.preserveMissing (M.zipWithMaybeMatched h)
+    in MapWithDefault b $ combine m n
 
 -- | This instance assumes that k is unbounded
 --
