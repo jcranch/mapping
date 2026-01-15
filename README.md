@@ -5,11 +5,12 @@
 This package does two jobs:
 
 * It offers a general typeclass [`Mapping`](src/Data/Mapping.hs) for
-  types which represent functions `k -> v` (for fixed `k`, but
-  arbitrary ordered `v`).
+  data structures which represent functions `k -> v` (for fixed `k`,
+  but arbitrary ordered `v`).
 
-  There are some fairly straightforward examples which build up
-  mappings where `k` is `Either`, or a pair, or `Maybe`, or `Bool`.
+  There are some fairly straightforward examples: constant mappings,
+  and those which build up mappings where `k` is `Either`, or a pair,
+  or `Maybe`, or `Bool`.
 
 * Three less trivial implementations are provided:
 

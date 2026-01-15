@@ -8,7 +8,7 @@ import Test.Hspec
 import Data.Algebra.Boolean ((&&), (||), not, all)
 import Data.Mapping
 import Data.Mapping.Decision
-import Data.Mapping.Piecewise
+import Data.Mapping.Piecewise (Piecewise, greaterThanOrEqual, fromAscList)
 
 
 boolAct ::    Ord a
@@ -107,6 +107,8 @@ spec = do
 
   describe "Independent maximal sets in C_100" $ do
 
+    -- We build a decision tree representing all maximal subsets of
+    -- {0,...,99} (regarded cyclically) with no consecutive elements.
     let l2 = (99,0):[(n,n+1) | n <- [0..98]]
     let l3 = (98,99,0):(99,0,1):[(n,n+1,n+2) | n <- [0..97]]
     let independent = all (\(i,j) -> not (test i && test j)) l2
@@ -116,6 +118,16 @@ spec = do
     -- Mentioned in Knuth
     it "should have the right count" $ do
       foldingCountTrue id 100 t `shouldBe` (1630580875002 :: Int)
+
+  describe "Test of neighbours" $ do
+    
+    let m1 = decision "x" $ fromAscList 1 [(37,2),(74,3)]
+    let m2 = decision "y" $ fromAscList 10 [(24,20),(83,30)]
+    let m = m1 + m2 :: Decision Int (Piecewise Int) String Int
+    it "should calculate neighbours correctly" $ do
+      neighbours m `shouldBe` S.fromList [
+        (11,12),(12,13),(21,22),(22,23),(31,32),(32,33),
+        (11,21),(21,31),(12,22),(22,32),(13,23),(23,33)]
 
   describe "Decision trees for monomial divisibility" $ do
 
