@@ -8,6 +8,7 @@ import Prelude hiding (Applicative(..), Foldable(..))
 import Control.Applicative (Applicative(..))
 import Data.Algebra.Boolean
 import Data.Foldable (Foldable(..))
+import Data.Functor.Const (Const(..))
 import Data.List (groupBy)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -16,6 +17,7 @@ import Data.Mapping
 import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Mapping.Util
+import Data.Void (Void)
 
 
 -- | Mappings constant except on an enumerated set of values
@@ -42,20 +44,26 @@ instance Foldable (MapWithDefault k) where
   foldMap p (MapWithDefault a f) = p a <> foldMap p f
 
 instance Ord k => Mapping k (MapWithDefault k) where
+
   cst x = MapWithDefault x M.empty
+
   mmap p (MapWithDefault a f) = let
     b = p a
     q x = let
       y = p x
       in if b == y then Nothing else Just y
     in MapWithDefault b $ M.mapMaybe q f
+
   mtraverse p (MapWithDefault a f) = let
     b = p a
     e x y = if x == y then Nothing else Just y
     g _ x = liftA2 e b (p x)
     in liftA2 MapWithDefault b $ M.traverseMaybeWithKey g f
+
   act (MapWithDefault a f) x = fromMaybe a (M.lookup x f)
+
   isConst (MapWithDefault a f) = if M.null f then Just a else Nothing
+
   mergeA h (MapWithDefault a f) (MapWithDefault b g) = let
     e x y = if x == y then Just x else Nothing
     c = h a b
@@ -65,6 +73,7 @@ instance Ord k => Mapping k (MapWithDefault k) where
     t = M.zipWithMaybeAMatched h'
     combine = M.mergeA l r t
     in liftA2 MapWithDefault c $ combine f g
+
   merge h (MapWithDefault a f) (MapWithDefault b g) = let
     c = h a b
     l = M.mapMissing (\_ x -> h x b)
@@ -75,6 +84,15 @@ instance Ord k => Mapping k (MapWithDefault k) where
     t = M.zipWithMaybeMatched h'
     combine = M.merge l r t
     in MapWithDefault c $ combine f g
+
+  pairMappings :: forall a b m. Monoid m => (a -> b -> m) -> MapWithDefault k a -> MapWithDefault k b -> m
+  pairMappings p (MapWithDefault a f) (MapWithDefault b g) = let
+    t = M.zipWithAMatched (\_ x y -> Const $ p x y)
+    l = M.traverseMissing (\_ x -> Const $ p x b)
+    r = M.traverseMissing (\_ y -> Const $ p a y)
+    combine = M.mergeA l r t
+    in p a b <> getConst (combine f g :: Const m (Map k Void))
+
   bind f (MapWithDefault a m) = let
     MapWithDefault b n = f a
     g k x

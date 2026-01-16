@@ -36,9 +36,6 @@
 --     - finding random elements
 --    (as examples of the more general functions, already coded, I hope)
 --  * Documentation!!!
---  * MonadicMapping
---  * Make pairMappings a method, since it can be implemented
---    efficiently for Decision?
 --
 -- MAYBE TO DO
 --  * Optimisation by reordering
@@ -58,7 +55,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 
 import Data.Mapping
-
 
 
 data Serial a = Serial {
@@ -172,7 +168,6 @@ recurseMapM p q = let
   in memoComputeM serial r
 
 
-
 -- | A function Int -> Int -> Int which is injective on pairs of
 -- nonnegative integers
 pairIntegers :: Int -> Int -> Int
@@ -182,6 +177,7 @@ pairIntegers i j = (((i+j)*(i+j+1)) `div` 2) + j
 instance (Mapping k m, Ord a, Eq v) => Eq (Decision k m a v) where
   a == b = getAll $ pairMappings (\x y -> All (x == y)) a b
 -- test pointer equality first
+
 
 instance (Mapping k m, Ord a, Ord v) => Ord (Decision k m a v) where
   compare = pairMappings compare
@@ -228,7 +224,7 @@ mergeS :: (Mapping k m, Ord a, Ord w)
 mergeS f = let
   pairSerial (Serial i _, Serial j _) = pairIntegers i j
 
-  recurse r (s,t) = case (content s, content t) of
+  calculate r (s,t) = case (content s, content t) of
     (Leaf u, Leaf v) -> lift . makeLeaf $ f u v
     (Leaf _, Branch b n) -> lift . makeBranch b =<< mtraverse (r . (s,)) n
     (Branch a m, Leaf _) -> lift . makeBranch a =<< mtraverse (r . (,t)) m
@@ -236,7 +232,7 @@ mergeS f = let
       LT -> lift . makeBranch a =<< mtraverse (r . (,t)) m
       GT -> lift . makeBranch b =<< mtraverse (r . (s,)) n
       EQ -> lift . makeBranch a =<< mergeA (curry r) m n
-  in curry $ memoComputeM pairSerial recurse
+  in curry $ memoComputeM pairSerial calculate
 
 
 -- | Just as for traverseS, this setting makes it seem unlikely that
@@ -279,6 +275,23 @@ instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
   merge p a b = runOnEmptyCache $ mergeS p (start a) (start b)
 
   mergeA p a b = runOnEmptyCache <$> mergeAS p (start a) (start b)
+
+  pairMappings f = let
+
+    pairSerial (Serial i _, Serial j _) = pairIntegers i j
+
+    calculate r (s,t) = case (content s, content t) of
+      (Leaf u, Leaf v) -> pure $ f u v
+      (Leaf _, Branch _ n) -> getAp $ foldMap (Ap . r . (s,)) n
+      (Branch _ m, Leaf _) -> getAp $ foldMap (Ap . r . (,t)) m
+      (Branch a m, Branch b n) -> case compare a b of
+        LT -> getAp $ foldMap (Ap . r . (,t)) m
+        GT -> getAp $ foldMap (Ap . r . (s,)) n
+        EQ -> getAp $ pairMappings (curry (Ap . r)) m n
+
+    go s t = memoCompute pairSerial calculate (start s, start t)
+
+    in go
 
 
 instance (Ord a, Mapping k m, Neighbourly m) => Neighbourly (Decision k m a) where

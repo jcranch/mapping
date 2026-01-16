@@ -163,6 +163,19 @@ instance Ord k => Mapping k (Piecewise k) where
 
     in run
 
+  pairMappings p = let
+
+    inner z a b r@((x,a'):r') s@((y,b'):s') = case compare x y of
+      LT -> inner (z <> p a' b) a' b r' s
+      GT -> inner (z <> p a b') a b' r s'
+      EQ -> inner (z <> p a' b') a' b' r' s'
+    inner z a _ [] s = z <> foldMap (p a . snd) s
+    inner z _ b r [] = z <> foldMap (flip p b . snd) r
+
+    run (Piecewise a f) (Piecewise b g) = inner (p a b) a b (M.toList f) (M.toList g)
+
+    in run
+
   bind f (Piecewise a m) = let
     inner p []        = p
     inner p ((k,q):l) = let

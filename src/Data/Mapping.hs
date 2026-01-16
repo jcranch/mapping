@@ -60,6 +60,14 @@ class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
     q x y = Identity $ p x y
     in runIdentity $ mergeA q m n
 
+  -- | A simultaneous foldMap over two maps; pairMappings is to
+  -- foldMap as mmerge is to mmap
+  pairMappings :: forall a u v. (Monoid a) => (u -> v -> a) -> m u -> m v -> a
+  pairMappings p m n = let
+    q :: u -> v -> Const a Void
+    q x y = Const $ p x y
+    in getConst (mergeA q m n)
+
   -- | A monad-like structure
   bind :: (Ord u, Ord v) => (u -> m v) -> m u -> m v
   bind f m = let
@@ -84,17 +92,9 @@ values :: (Mapping k m, Ord v) => m v -> Set v
 values = foldMap S.singleton
 
 
--- | A simultaneous foldMap over two maps
-pairMappings :: forall k m u v a. (Mapping k m, Monoid a) => (u -> v -> a) -> m u -> m v -> a
-pairMappings p m n = let
-  q :: u -> v -> Const a Void
-  q x y = Const $ p x y
-  in getConst (mergeA q m n)
-
 -- | What values can these two take simultaneously?
 mutualValues :: (Ord u, Ord v, Mapping k m) => m u -> m v -> Set (u, v)
 mutualValues = pairMappings $ curry S.singleton
-
 
 
 -- | A class representing data structures which have a concept of neighbouring
@@ -149,6 +149,7 @@ instance Mapping k (Constant k) where
   mtraverse f (Constant x) = Constant <$> f x
   merge f (Constant x) (Constant y) = Constant $ f x y
   mergeA f (Constant x) (Constant y) = Constant <$> f x y
+  pairMappings f (Constant x) (Constant y) = f x y
   bind f (Constant x) = f x
 
 instance Neighbourly (Constant k) where
@@ -210,6 +211,7 @@ instance Mapping Bool OnBool where
   mtraverse = traverse
   mergeA h (OnBool x1 y1) (OnBool x2 y2) = liftA2 OnBool (h x1 x2) (h y1 y2)
   merge h (OnBool x1 y1) (OnBool x2 y2) = OnBool (h x1 x2) (h y1 y2)
+  pairMappings p (OnBool x1 y1) (OnBool x2 y2) = p x1 x2 <> p y1 y2
   bind f (OnBool u v) = OnBool (onFalse (f u)) (onTrue (f v))
 
 instance Neighbourly OnBool where
@@ -253,6 +255,7 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
     if x == y then Just x else Nothing
   merge h (OnMaybe x a) (OnMaybe y b) = OnMaybe (h x y) (merge h a b)
   mergeA h (OnMaybe x a) (OnMaybe y b) = liftA2 OnMaybe (h x y) (mergeA h a b)
+  pairMappings p (OnMaybe x a) (OnMaybe y b) = p x y <> pairMappings p a b
   bind f (OnMaybe x m) = OnMaybe (onNothing (f x)) (bind (onJust . f) m)
 
 deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
@@ -294,6 +297,7 @@ instance (Mapping k m,
     if x == y then Just x else Nothing
   mergeA h (OnEither f1 g1) (OnEither f2 g2) = liftA2 OnEither (mergeA h f1 f2) (mergeA h g1 g2)
   merge h (OnEither f1 g1) (OnEither f2 g2) = OnEither (merge h f1 f2) (merge h g1 g2)
+  pairMappings p (OnEither f1 g1) (OnEither f2 g2) = pairMappings p f1 f2 <> pairMappings p g1 g2
   bind f (OnEither u v) = OnEither (bind (onLeft . f) u) (bind (onRight . f) v)
 
 deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
@@ -344,6 +348,7 @@ instance (Mapping k m,
   isConst (OnPair f) = isConst =<< isConst f
   mergeA h (OnPair f) (OnPair g) = OnPair <$> mergeA (mergeA h) f g
   merge h (OnPair f) (OnPair g) = OnPair $ merge (merge h) f g
+  pairMappings p (OnPair f) (OnPair g) = pairMappings (pairMappings p) f g
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
   instance (Mapping k m, Mapping l n, Ord a, Semigroup a) => Semigroup (OnPair k l m n a)
