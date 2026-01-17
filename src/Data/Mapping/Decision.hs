@@ -22,14 +22,9 @@
 -- 4. The functionality of Decision
 
 -- TODO
---  * Monkey with the types a bit? (At least give synonyms for
---    commonly-used long types). It's painful.
---  * Add infrastructure to make the monad-valued functionality easier
---    to use
 --  * Could optimise bind a bit, sharing base
---  * Do we get any use out of Decision knowing its own cache? I think
---    we're either keeping control of the caches or using Decision
 --  * Format types of functions better
+--  * Lint and check for long lines
 --  * Increase test coverage
 --  * Examples:
 --     - finding optima
@@ -43,8 +38,9 @@ module Data.Mapping.Decision where
 
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (State, StateT, evalStateT, get, modify, runState, state)
+import Control.Monad.Trans.State.Strict (State, StateT, evalState, evalStateT, execState, get, modify, state)
 import Data.Algebra.Boolean (Boolean(..))
+import Data.Foldable (traverse_)
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
@@ -66,6 +62,8 @@ instance Eq (Serial a) where
   Serial i _ == Serial j _ = i == j
 
 
+-- | A general-purpose monadic memoising function, which caches
+-- partial results in an IntMap
 memoComputeM :: Monad m
              => (a -> Int)
              -> (forall s. (a -> StateT s m b) -> a -> StateT s m b)
@@ -85,6 +83,8 @@ memoComputeM s r = let
 
   in flip evalStateT IM.empty . go
 
+-- | A slightly-less general-purpose memoising function, caching
+-- partial results in an IntMap.
 memoCompute :: (a -> Int)
             -> (forall s. (a -> State s b) -> a -> State s b)
             -> a
@@ -138,9 +138,8 @@ makeBranch a n = case isConst n of
 -- 3. If you know two Decisions have been built from the same cache,
 -- then comparing the serial numbers of their start node is a better
 -- equality test than the more generic one provided.
-data Decision k m a v = Decision {
-  start :: Serial (Node k m a v),
-  cache :: Cache (Node k m a v)
+newtype Decision k m a v = Decision {
+  startDecision :: Serial (Node k m a v)
 }
 
 
@@ -187,10 +186,10 @@ instance Foldable m => Foldable (Decision k m a) where
 
   foldMap f = let
     p g _ = getAp . foldMap (Ap . g)
-    in recurseMap f p . start
+    in recurseMap f p . startDecision
 
 runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v)) -> Decision k m a v
-runOnEmptyCache r = uncurry Decision . runState r $ Cache M.empty
+runOnEmptyCache r = Decision . evalState r $ Cache M.empty
 
 
 mapS :: (Mapping k m, Ord a, Ord v)
@@ -258,23 +257,23 @@ instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
   cst x = let
     n = Leaf x
     s = Serial 0 n
-    in Decision s (Cache (M.singleton n s))
+    in Decision s
 
-  isConst (Decision (Serial _ (Leaf x)) _) = Just x
-  isConst (Decision (Serial _ (Branch _ _)) _) = Nothing
+  isConst (Decision (Serial _ (Leaf x))) = Just x
+  isConst (Decision (Serial _ (Branch _ _))) = Nothing
 
   act = let
     inner (Leaf x) _ = x
     inner (Branch a m) f = inner (content (act m (f a))) f
-    in inner . content . start
+    in inner . content . startDecision
 
-  mmap p = runOnEmptyCache . mapS p . start
+  mmap p = runOnEmptyCache . mapS p . startDecision
 
-  mtraverse p = fmap runOnEmptyCache . traverseS p . start
+  mtraverse p = fmap runOnEmptyCache . traverseS p . startDecision
 
-  merge p a b = runOnEmptyCache $ mergeS p (start a) (start b)
+  merge p (Decision a) (Decision b) = runOnEmptyCache $ mergeS p a b
 
-  mergeA p a b = runOnEmptyCache <$> mergeAS p (start a) (start b)
+  mergeA p (Decision a) (Decision b) = runOnEmptyCache <$> mergeAS p a b
 
   pairMappings f = let
 
@@ -289,7 +288,7 @@ instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
         GT -> getAp $ foldMap (Ap . r . (s,)) n
         EQ -> getAp $ pairMappings (curry (Ap . r)) m n
 
-    go s t = memoCompute pairSerial calculate (start s, start t)
+    go s t = memoCompute pairSerial calculate (startDecision s, startDecision t)
 
     in go
 
@@ -320,7 +319,7 @@ instance (Ord a, Mapping k m, Neighbourly m) => Neighbourly (Decision k m a) whe
           q x y = Ap . r $ Right (x,y)
           in getAp $ pairMappings q m n
 
-    in memoCompute serial p . Left . start
+    in memoCompute serial p . Left . startDecision
 
 
 instance (Ord a, FoldableWithIndex k m, Mapping k m) => FoldableWithIndex (Map a k) (Decision k m a) where
@@ -330,7 +329,7 @@ instance (Ord a, FoldableWithIndex k m, Mapping k m) => FoldableWithIndex (Map a
     inner m (Branch a n) = let
       g k = inner (M.insert a k m) . content
       in ifoldMap g n
-    in inner M.empty . content . start
+    in inner M.empty . content . startDecision
 
 
 -- | Find all assignments of variables that pass the test
@@ -343,7 +342,7 @@ satisfyingAssignments t = let
   q f a = let
     h k = Ap . fmap (fmap (M.insert a k)) . f
     in getAp . ifoldMap h
-  in recurseMap p q . start
+  in recurseMap p q . startDecision
 
 trueAssignments :: (Ord a, FoldableWithIndex k m) => Decision k m a Bool -> [Map a k]
 trueAssignments = satisfyingAssignments id
@@ -374,7 +373,7 @@ generalCount s n c d = let
     i = s a
     in fmap (i,) . d (fmap (step i) . f)
 
-  in step (-1) . recurseMap p q . start
+  in step (-1) . recurseMap p q . startDecision
 
 
 foldingCount :: (Mapping k m, Num n)
@@ -470,28 +469,6 @@ bestSuchThat p q = let
   f x = if p x then Just ([], x) else Nothing
   g i = uncurry (\x -> fmap (first ((i,x):))) <=< q i
   in decisionRecurse f g
-
-
--- | Rapidly take the conjunction of the inputs
-buildAll :: Mapping k m => Map a (m Bool) -> Decision k m a Bool
-buildAll d = let
-  l = Q.fromList [true, false]
-  s = M.size d
-  m = Q.fromList $ do
-    (i,(r,n)) <- zip [0..] (M.toDescList d)
-    pure (Node r (mmap (bool (-2) (i-1)) n))
-  in Decision (Base l m) (s-1)
-
--- | Rapidly take the disjunction of the inputs
-buildAny :: Mapping k m => Map a (m Bool) -> Decision k m a Bool
-buildAny d = let
-  l = Q.fromList [false, true]
-  s = M.size d
-  m = Q.fromList $ do
-    (i,(r,n)) <- zip [0..] (M.toDescList d)
-    pure (Node r (mmap (bool (i-1) (-2)) n))
-  in Decision (Base l m) (s-1)
-
 -}
 
 
@@ -511,11 +488,29 @@ debugShowCache (Cache c) = let
 
   in makeLine <$> IM.assocs entries
 
+
+-- | Provided for debugging purposes only: if you find yourself
+-- wanting this, that's a sign you should be using the State-valued
+-- functionality instead.
+recoverCache :: (Mapping k m, Ord a, Ord v) => Serial (Node k m a v) -> Cache (Node k m a v)
+recoverCache = let
+  inner s@(Serial _ n) = do
+    m <- get
+    case M.lookup n m of
+      Just _ -> pure ()
+      Nothing -> do
+        case n of
+          Leaf _ -> pure ()
+          Branch _ a -> traverse_ inner a
+        modify (M.insert n s)
+  in Cache . flip execState M.empty . inner
+
+
 -- | Output the structure of a Decision
-debugShow :: Mapping k m => (Show a, Show v, Show (m Int)) => Decision k m a v -> String
-debugShow (Decision (Serial s _) c) = let
+debugShow :: (Mapping k m, Ord a, Ord v) => (Show a, Show v, Show (m Int)) => Decision k m a v -> String
+debugShow (Decision x@(Serial s _)) = let
   prefix i = ((if i == s then "* " else "  ") <>)
-  in unlines [prefix i l | (i,l) <- zip [0..] (debugShowCache c)]
+  in unlines [prefix i l | (i,l) <- zip [0..] (debugShowCache (recoverCache x))]
 
 
 restrictS :: (Mapping k m, Ord a, Ord v)
@@ -538,7 +533,7 @@ restrict :: (Mapping k m, Ord a, Ord v)
          => (a -> Maybe k)
          -> Decision k m a v
          -> Decision k m a v
-restrict f = runOnEmptyCache . restrictS f . start
+restrict f = runOnEmptyCache . restrictS f . startDecision
 
 
 deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
