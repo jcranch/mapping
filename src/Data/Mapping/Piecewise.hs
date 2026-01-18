@@ -1,15 +1,8 @@
-{-# LANGUAGE
-      CPP,
-      DerivingVia
-  #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DerivingVia #-}
 
 module Data.Mapping.Piecewise where
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
-#else
-import Control.Applicative (liftA2)
-#endif
-import Control.Applicative (liftA3)
 import Data.Algebra.Boolean
 import Data.Foldable (toList)
 import qualified Data.Map.Internal as MI
@@ -91,6 +84,71 @@ instance (Eq k) => Functor (Piecewise k) where
 instance Foldable (Piecewise k) where
   foldMap f (Piecewise a m) = f a <> foldMap f m
 
+
+innerMerge :: Ord k => (x -> y -> z) -> x -> y -> [(k,x)] -> [(k,y)] -> [(k,z)]
+innerMerge p = let
+  go x _ [] v = fmap (p x) <$> v
+  go _ y u [] = fmap (flip p y) <$> u
+  go x y u@((a,x'):u') v@((b,y'):v') = case compare a b of
+    LT -> (a,p x' y):go x' y u' v
+    GT -> (b,p x y'):go x y' u v'
+    EQ -> (a,p x' y'):go x' y' u' v'
+  in go
+
+
+innerMergeA :: (Ord k, Applicative f) => (x -> y -> f z) -> x -> y -> [(k,x)] -> [(k,y)] -> f [(k,z)]
+innerMergeA p = let
+  go x _ [] v = traverse (traverse (p x)) v
+  go _ y u [] = traverse (traverse (flip p y)) u
+  go x y u@((a,x'):u') v@((b,y'):v') = case compare a b of
+    LT -> liftA2 (:) ((a,) <$> p x' y) (go x' y u' v)
+    GT -> liftA2 (:) ((b,) <$> p x y') (go x y' u v')
+    EQ -> liftA2 (:) ((a,) <$> p x' y') (go x' y' u' v')
+  in go
+
+
+innerMerge3 :: Ord k => (x -> y -> z -> w) -> x -> y -> z -> [(k,x)] -> [(k,y)] -> [(k,z)] -> [(k,w)]
+innerMerge3 p = let
+  go x y z [] v w = innerMerge (p x) y z v w
+  go x y z u [] w = innerMerge (\i -> p i y) x z u w
+  go x y z u v [] = innerMerge (\i j -> p i j z) x y u v
+  go x y z u@((a,x'):u') v@((b,y'):v') w@((c,z'):w') = case compare a b of
+    LT -> case compare a c of
+      LT -> (a,p x' y z):go x' y z u' v w
+      GT -> (c,p x y z'):go x y z' u v w'
+      EQ -> (a,p x' y z'):go x' y z' u' v w'
+    GT -> case compare b c of
+      LT -> (b,p x y' z):go x y' z u v' w
+      GT -> (c,p x y z'):go x y z' u v w'
+      EQ -> (b,p x y' z'):go x y' z' u v' w'
+    EQ -> case compare a c of
+      LT -> (a,p x' y' z):go x' y' z u' v' w
+      GT -> (c,p x y z'):go x y z' u v w'
+      EQ -> (a,p x' y' z'):go x' y' z' u' v' w'
+  in go
+
+
+innerMergeA3 :: (Applicative f, Ord k) => (x -> y -> z -> f w) -> x -> y -> z -> [(k,x)] -> [(k,y)] -> [(k,z)] -> f [(k,w)]
+innerMergeA3 p = let
+  go x y z [] v w = innerMergeA (p x) y z v w
+  go x y z u [] w = innerMergeA (\i -> p i y) x z u w
+  go x y z u v [] = innerMergeA (\i j -> p i j z) x y u v
+  go x y z u@((a,x'):u') v@((b,y'):v') w@((c,z'):w') = case compare a b of
+    LT -> case compare a c of
+      LT -> liftA2 (:) ((a,) <$> p x' y z) (go x' y z u' v w)
+      GT -> liftA2 (:) ((c,) <$> p x y z') (go x y z' u v w')
+      EQ -> liftA2 (:) ((a,) <$> p x' y z') (go x' y z' u' v w')
+    GT -> case compare b c of
+      LT -> liftA2 (:) ((b,) <$> p x y' z) (go x y' z u v' w)
+      GT -> liftA2 (:) ((c,) <$> p x y z') (go x y z' u v w')
+      EQ -> liftA2 (:) ((b,) <$> p x y' z') (go x y' z' u v' w')
+    EQ -> case compare a c of
+      LT -> liftA2 (:) ((a,) <$> p x' y' z) (go x' y' z u' v' w)
+      GT -> liftA2 (:) ((c,) <$> p x y z') (go x y z' u v w')
+      EQ -> liftA2 (:) ((a,) <$> p x' y' z') (go x' y' z' u' v' w')
+  in go
+
+
 instance Ord k => Mapping k (Piecewise k) where
 
   cst x = Piecewise x M.empty
@@ -101,67 +159,21 @@ instance Ord k => Mapping k (Piecewise k) where
 
   isConst (Piecewise a f) = if M.null f then Just a else Nothing
 
-  mmap = fmap
+  mmap p (Piecewise a f) = fromAscList (p a) . fmap (fmap p) $ M.toList f
 
-  mtraverse p (Piecewise a f) = liftA2 fromAscList (p a) (traverse (traverse p) $ M.toList f)
+  mtraverse p (Piecewise a f) = liftA2 fromAscList (p a) . traverse (traverse p) $ M.toList f
 
-  merge p = let
+  merge p (Piecewise a f) (Piecewise b g) =
+    fromAscList (p a b) $ innerMerge p a b (M.toList f) (M.toList g)
 
-    inner a b c r@((x,a'):r') s@((y,b'):s') = case compare x y of
-      LT -> let
-        c' = p a' b
-        in if c' == c then inner a' b c r' s else (x,c'):inner a' b c' r' s
-      GT -> let
-        c' = p a b'
-        in if c' == c then inner a b' c r s' else (y,c'):inner a b' c' r s'
-      EQ -> let
-        c' = p a' b'
-        in if c' == c then inner a' b' c r' s' else (x,c'):inner a' b' c' r' s'
-    inner a _ c [] ((y,b'):s') = let
-      c' = p a b'
-      in if c' == c then inner a b' c [] s' else (y,c'):inner a b' c' [] s'
-    inner _ b c ((x,a'):r') [] = let
-      c' = p a' b
-      in if c' == c then inner a' b c r' [] else (x,c'):inner a' b c' r' []
-    inner _ _ _ [] [] = []
+  mergeA p (Piecewise a f) (Piecewise b g) =
+    liftA2 fromAscList (p a b) $ innerMergeA p a b (M.toList f) (M.toList g)
 
-    run (Piecewise a f) (Piecewise b g) = let
-      c = p a b
-      l = inner a b c (M.toList f) (M.toList g)
-      in Piecewise c $ M.fromList l
+  merge3 p (Piecewise a f) (Piecewise b g) (Piecewise c h) =
+    fromAscList (p a b c) $ innerMerge3 p a b c (M.toList f) (M.toList g) (M.toList h)
 
-    in run
-
-  mergeA p = let
-
-    maybePrepend x u v l
-      | u == v    = l
-      | otherwise = (x,v):l
-
-    inner a b c r@((x,a'):r') s@((y,b'):s') = case compare x y of
-      LT -> let
-        c' = p a' b
-        in liftA3 (maybePrepend x) c c' $ inner a' b c' r' s
-      GT -> let
-        c' = p a b'
-        in liftA3 (maybePrepend y) c c' $ inner a b' c' r s'
-      EQ -> let
-        c' = p a' b'
-        in liftA3 (maybePrepend x) c c' $ inner a' b' c' r' s'
-    inner a _ c [] ((y,b'):s') = let
-      c' = p a b'
-      in liftA3 (maybePrepend y) c c' $ inner a b' c' [] s'
-    inner _ b c ((x,a'):r') [] = let
-      c' = p a' b
-      in liftA3 (maybePrepend x) c c' $ inner a' b c' r' []
-    inner _ _ _ [] [] = pure []
-
-    run (Piecewise a f) (Piecewise b g) = let
-      c = p a b
-      l = inner a b c (M.toList f) (M.toList g)
-      in liftA2 Piecewise c (M.fromList <$> l)
-
-    in run
+  mergeA3 p (Piecewise a f) (Piecewise b g) (Piecewise c h) =
+    liftA2 fromAscList (p a b c) $ innerMergeA3 p a b c (M.toList f) (M.toList g) (M.toList h)
 
   pairMappings p = let
 

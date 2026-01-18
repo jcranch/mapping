@@ -1,12 +1,10 @@
-{-# LANGUAGE
-    CPP,
-    DeriveFunctor,
-    DerivingVia,
-    FlexibleInstances,
-    FunctionalDependencies,
-    QuantifiedConstraints,
-    ScopedTypeVariables
-  #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Data.Mapping where
 
@@ -16,6 +14,7 @@ import Control.Applicative (liftA2)
 #endif
 import Prelude hiding (not, (&&), (||))
 import Data.Algebra.Boolean (Boolean(..), AllB(..))
+import Data.Bool (bool)
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Function (on)
 import Data.Functor.Const (Const(..))
@@ -60,6 +59,12 @@ class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
     q x y = Identity $ p x y
     in runIdentity $ mergeA q m n
 
+  -- | Merge three Mappings
+  merge3 :: Ord x => (u -> v -> w -> x) -> m u -> m v -> m w -> m x
+
+  -- | Merge three Mappings
+  mergeA3 :: (Applicative f, Ord x) => (u -> v -> w -> f x) -> m u -> m v -> m w -> f (m x)
+
   -- | A simultaneous foldMap over two maps; pairMappings is to
   -- foldMap as mmerge is to mmap
   pairMappings :: forall a u v. (Monoid a) => (u -> v -> a) -> m u -> m v -> a
@@ -86,6 +91,12 @@ class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
       p (Right y) z = if y == x then Left z else Right y
       in continue xs $ merge p n (f x)
     in start . S.toList $ values m
+
+
+-- | This commonly-used function is the reason why we have three-way
+-- merges in the typeclass
+boolBind :: (Mapping k m, Ord v) => m v -> m v -> m Bool -> m v
+boolBind = merge3 bool
 
 
 values :: (Mapping k m, Ord v) => m v -> Set v
@@ -148,7 +159,9 @@ instance Mapping k (Constant k) where
   mmap f (Constant x) = Constant $ f x
   mtraverse f (Constant x) = Constant <$> f x
   merge f (Constant x) (Constant y) = Constant $ f x y
+  merge3 f (Constant x) (Constant y) (Constant z) = Constant $ f x y z
   mergeA f (Constant x) (Constant y) = Constant <$> f x y
+  mergeA3 f (Constant x) (Constant y) (Constant z) = Constant <$> f x y z
   pairMappings f (Constant x) (Constant y) = f x y
   bind f (Constant x) = f x
 
@@ -211,6 +224,8 @@ instance Mapping Bool OnBool where
   mtraverse = traverse
   mergeA h (OnBool x1 y1) (OnBool x2 y2) = liftA2 OnBool (h x1 x2) (h y1 y2)
   merge h (OnBool x1 y1) (OnBool x2 y2) = OnBool (h x1 x2) (h y1 y2)
+  mergeA3 h (OnBool x1 y1) (OnBool x2 y2) (OnBool x3 y3) = liftA2 OnBool (h x1 x2 x3) (h y1 y2 y3)
+  merge3 h (OnBool x1 y1) (OnBool x2 y2) (OnBool x3 y3) = OnBool (h x1 x2 x3) (h y1 y2 y3)
   pairMappings p (OnBool x1 y1) (OnBool x2 y2) = p x1 x2 <> p y1 y2
   bind f (OnBool u v) = OnBool (onFalse (f u)) (onTrue (f v))
 
@@ -255,6 +270,8 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
     if x == y then Just x else Nothing
   merge h (OnMaybe x a) (OnMaybe y b) = OnMaybe (h x y) (merge h a b)
   mergeA h (OnMaybe x a) (OnMaybe y b) = liftA2 OnMaybe (h x y) (mergeA h a b)
+  merge3 h (OnMaybe x a) (OnMaybe y b) (OnMaybe z c) = OnMaybe (h x y z) (merge3 h a b c)
+  mergeA3 h (OnMaybe x a) (OnMaybe y b) (OnMaybe z c) = liftA2 OnMaybe (h x y z) (mergeA3 h a b c)
   pairMappings p (OnMaybe x a) (OnMaybe y b) = p x y <> pairMappings p a b
   bind f (OnMaybe x m) = OnMaybe (onNothing (f x)) (bind (onJust . f) m)
 
@@ -297,6 +314,8 @@ instance (Mapping k m,
     if x == y then Just x else Nothing
   mergeA h (OnEither f1 g1) (OnEither f2 g2) = liftA2 OnEither (mergeA h f1 f2) (mergeA h g1 g2)
   merge h (OnEither f1 g1) (OnEither f2 g2) = OnEither (merge h f1 f2) (merge h g1 g2)
+  mergeA3 p (OnEither f1 g1) (OnEither f2 g2) (OnEither f3 g3) = liftA2 OnEither (mergeA3 p f1 f2 f3) (mergeA3 p g1 g2 g3)
+  merge3 p (OnEither f1 g1) (OnEither f2 g2) (OnEither f3 g3) = OnEither (merge3 p f1 f2 f3) (merge3 p g1 g2 g3)
   pairMappings p (OnEither f1 g1) (OnEither f2 g2) = pairMappings p f1 f2 <> pairMappings p g1 g2
   bind f (OnEither u v) = OnEither (bind (onLeft . f) u) (bind (onRight . f) v)
 
@@ -348,6 +367,8 @@ instance (Mapping k m,
   isConst (OnPair f) = isConst =<< isConst f
   mergeA h (OnPair f) (OnPair g) = OnPair <$> mergeA (mergeA h) f g
   merge h (OnPair f) (OnPair g) = OnPair $ merge (merge h) f g
+  merge3 p (OnPair f) (OnPair g) (OnPair h) = OnPair $ merge3 (merge3 p) f g h
+  mergeA3 p (OnPair f) (OnPair g) (OnPair h) = OnPair <$> mergeA3 (mergeA3 p) f g h
   pairMappings p (OnPair f) (OnPair g) = pairMappings (pairMappings p) f g
 
 deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)

@@ -22,7 +22,6 @@
 -- 4. The functionality of Decision
 
 -- TODO
---  * Could optimise bind a bit, sharing base
 --  * Format types of functions better
 --  * Lint and check for long lines
 --  * Increase test coverage
@@ -31,6 +30,7 @@
 --     - finding random elements
 --    (as examples of the more general functions, already coded, I hope)
 --  * Documentation!!!
+--  * Implement mergeA3
 --
 -- MAYBE TO DO
 --  * Optimisation by reordering
@@ -38,7 +38,10 @@ module Data.Mapping.Decision where
 
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (State, StateT, evalState, evalStateT, execState, get, modify, state)
+import Control.Monad.Trans.State.Strict (
+  State, StateT,
+  evalState, evalStateT, execState,
+  get, modify, state)
 import Data.Algebra.Boolean (Boolean(..))
 import Data.Foldable (traverse_)
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
@@ -115,10 +118,15 @@ stash x = let
     in Cache <$> M.alterF g x m
   in state f
 
-makeLeaf :: (forall x. Ord x => Ord (m x), Ord a, Ord v) => v -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+makeLeaf :: (forall x. Ord x => Ord (m x), Ord a, Ord v)
+         => v
+         -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 makeLeaf = stash . Leaf
 
-makeBranch :: (Mapping k m, Ord a, Ord v) => a -> m (Serial (Node k m a v)) -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+makeBranch :: (Mapping k m, Ord a, Ord v)
+           => a
+           -> m (Serial (Node k m a v))
+           -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 makeBranch a n = case isConst n of
   Just s -> pure s
   Nothing -> stash (Branch a n)
@@ -167,10 +175,16 @@ recurseMapM p q = let
   in memoComputeM serial r
 
 
--- | A function Int -> Int -> Int which is injective on pairs of
--- nonnegative integers
+-- | A function Int -> Int -> Int which is injective on nonnegative
+-- integers
 pairIntegers :: Int -> Int -> Int
 pairIntegers i j = (((i+j)*(i+j+1)) `div` 2) + j
+
+
+-- | A function Int -> Int -> Int -> Int which is injective on nonnegative
+-- integers
+tripleIntegers :: Int -> Int -> Int -> Int
+tripleIntegers i j k = (((i+j+k)*(i+j+k+1)*(i+j+k+2)) `div` 6) + pairIntegers i j
 
 
 instance (Mapping k m, Ord a, Eq v) => Eq (Decision k m a v) where
@@ -188,7 +202,9 @@ instance Foldable m => Foldable (Decision k m a) where
     p g _ = getAp . foldMap (Ap . g)
     in recurseMap f p . startDecision
 
-runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v)) -> Decision k m a v
+
+runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v))
+                -> Decision k m a v
 runOnEmptyCache r = Decision . evalState r $ Cache M.empty
 
 
@@ -252,6 +268,52 @@ mergeAS f = let
       EQ -> fmap (makeBranch a =<<) . getCompose $ mergeA (\c -> Compose . inner c) m n
   in inner
 
+
+mergeS3 :: (Mapping k m, Ord a, Ord x)
+        => (u -> v -> w -> x)
+        -> Serial (Node k m a u)
+        -> Serial (Node k m a v)
+        -> Serial (Node k m a w)
+        -> State (Cache (Node k m a x)) (Serial (Node k m a x))
+mergeS3 f = let
+
+  tripleSerial (Serial i _, Serial j _, Serial k _) = tripleIntegers i j k
+
+  calculate q (r,s,t) = case (content r, content s, content t) of
+    (Leaf u, Leaf v, Leaf w) -> lift . makeLeaf $ f u v w
+    (Leaf _, Leaf _, Branch c o) -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
+    (Leaf _, Branch b n, Leaf _) -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
+    (Branch a m, Leaf _, Leaf _) -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
+    (Branch a m, Branch b n, Leaf _) -> case compare a b of
+      LT -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
+      GT -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
+      EQ -> lift . makeBranch a =<< mergeA (\x y -> q (x,y,t)) m n
+    (Branch a m, Leaf _, Branch c o) -> case compare a c of
+      LT -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
+      GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
+      EQ -> lift . makeBranch a =<< mergeA (\x z -> q (x,s,z)) m o
+    (Leaf _, Branch b n, Branch c o) -> case compare b c of
+      LT -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
+      GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
+      EQ -> lift . makeBranch b =<< mergeA (\y z -> q (r,y,z)) n o
+    (Branch a m, Branch b n, Branch c o) -> case compare a b of
+      LT -> case compare a c of
+        LT -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
+        GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
+        EQ -> lift . makeBranch a =<< mergeA (\x z -> q (x,s,z)) m o
+      GT -> case compare b c of
+        LT -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
+        GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
+        EQ -> lift . makeBranch b =<< mergeA (\y z -> q (r,y,z)) n o
+      EQ -> case compare a c of
+        GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
+        LT -> lift . makeBranch a =<< mergeA (\x y -> q (x,y,t)) m n
+        EQ -> lift . makeBranch a =<< mergeA3 (\x y z -> q (x,y,z)) m n o
+
+  start r s t = memoComputeM tripleSerial calculate (r,s,t)
+  in start
+
+
 instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
 
   cst x = let
@@ -274,6 +336,10 @@ instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
   merge p (Decision a) (Decision b) = runOnEmptyCache $ mergeS p a b
 
   mergeA p (Decision a) (Decision b) = runOnEmptyCache <$> mergeAS p a b
+
+  merge3 p (Decision a) (Decision b) (Decision c) = runOnEmptyCache $ mergeS3 p a b c
+
+  mergeA3 = error "mergeA3 on Decision: not yet implemented"
 
   pairMappings f = let
 
@@ -336,7 +402,10 @@ instance (Ord a, FoldableWithIndex k m, Mapping k m) => FoldableWithIndex (Map a
 --
 -- Even for modest-sized decision diagrams, this can produce some very
 -- large outputs!
-satisfyingAssignments :: (Ord a, FoldableWithIndex k m) => (v -> Bool) -> Decision k m a v -> [Map a k]
+satisfyingAssignments :: (Ord a, FoldableWithIndex k m)
+                      => (v -> Bool)
+                      -> Decision k m a v
+                      -> [Map a k]
 satisfyingAssignments t = let
   p x = if t x then [M.empty] else []
   q f a = let
@@ -344,7 +413,9 @@ satisfyingAssignments t = let
     in getAp . ifoldMap h
   in recurseMap p q . startDecision
 
-trueAssignments :: (Ord a, FoldableWithIndex k m) => Decision k m a Bool -> [Map a k]
+trueAssignments :: (Ord a, FoldableWithIndex k m)
+                => Decision k m a Bool
+                -> [Map a k]
 trueAssignments = satisfyingAssignments id
 
 
@@ -402,7 +473,9 @@ foldingCountTrue :: (Mapping k m, Num n)
                     -- ^ The count
 foldingCountTrue s n = foldingCount s n (\x -> if x then 1 else 0)
 
-genTestS :: (Ord a, Ord b, Boolean b) => a -> State (Cache (Node Bool OnBool a b)) (Serial (Node Bool OnBool a b))
+genTestS :: (Ord a, Ord b, Boolean b)
+         => a
+         -> State (Cache (Node Bool OnBool a b)) (Serial (Node Bool OnBool a b))
 genTestS x = do
   n0 <- makeLeaf false
   n1 <- makeLeaf true
@@ -418,10 +491,16 @@ test = genTest
 
 
 -- | Make a single decision
-decisionS :: (Mapping k m, Ord a, Ord v) => a -> m v -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+decisionS :: (Mapping k m, Ord a, Ord v)
+          => a
+          -> m v
+          -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 decisionS a m = makeBranch a =<< mtraverse makeLeaf m
 
-decision :: (Mapping k m, Ord a, Ord v) => a -> m v -> Decision k m a v
+decision :: (Mapping k m, Ord a, Ord v)
+         => a
+         -> m v
+         -> Decision k m a v
 decision a = runOnEmptyCache . decisionS a
 
 
@@ -460,18 +539,7 @@ decideAny = runOnEmptyCache . decideAnyS
 
 
 
-{-
-
--- | What is the best assignment of keys to values resulting in a
--- value on which `p` is `True`?
-bestSuchThat :: (Mapping k m, Ord k, Ord a, Ord v) => (v -> Bool) -> (forall w. a -> m w -> Maybe (k, w)) -> Decision k m a v -> Maybe ([(a,k)], v)
-bestSuchThat p q = let
-  f x = if p x then Just ([], x) else Nothing
-  g i = uncurry (\x -> fmap (first ((i,x):))) <=< q i
-  in decisionRecurse f g
--}
-
-
+-- | Display the structure of a cache
 debugShowCache :: Mapping k m => (Show a, Show v, Show (m Int)) => Cache (Node k m a v) -> [String]
 debugShowCache (Cache c) = let
 
@@ -483,7 +551,7 @@ debugShowCache (Cache c) = let
     lspace = replicate (padding - length (show n)) ' '
     rest = case s of
       Leaf v -> "Leaf " <> showsPrec 9 v ""
-      Branch a m -> "Branch " <> showsPrec 9 a "" <> " " <> showsPrec 9 (mmap serial m) ""
+      Branch a m -> "Branch " <> showsPrec 9 a "" <> " " <> showsPrec 11 (mmap serial m) ""
     in lspace <> show n <> ": " <> rest
 
   in makeLine <$> IM.assocs entries
@@ -506,7 +574,7 @@ recoverCache = let
   in Cache . flip execState M.empty . inner
 
 
--- | Output the structure of a Decision
+-- | Display the structure of a Decision
 debugShow :: (Mapping k m, Ord a, Ord v) => (Show a, Show v, Show (m Int)) => Decision k m a v -> String
 debugShow (Decision x@(Serial s _)) = let
   prefix i = ((if i == s then "* " else "  ") <>)

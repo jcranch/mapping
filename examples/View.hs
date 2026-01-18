@@ -43,10 +43,10 @@ main = do
     putStrLn ""
 
   do
-    putStrLn "  independent sets in C_100"
+    putStrLn "  independent sets in C_10"
     putStrLn "-----------------------------"
-    let l2 = (100,1):[(n,n+1) | n <- [1..99]]
-    let l3 = (99,100,1):(100,1,2):[(n,n+1,n+2) | n <- [1..98]]
+    let l2 = (10,1):[(n,n+1) | n <- [1..9]]
+    let l3 = (9,10,1):(10,1,2):[(n,n+1,n+2) | n <- [1..8]]
     let independent = all (\(i,j) -> not (test i && test j)) l2
     let maximal = all (\(i,j,k) -> test i || test j || test k) l3
     let t = independent && maximal :: Decision Bool OnBool Int Bool

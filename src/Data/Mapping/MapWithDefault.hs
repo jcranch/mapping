@@ -64,26 +64,57 @@ instance Ord k => Mapping k (MapWithDefault k) where
 
   isConst (MapWithDefault a f) = if M.null f then Just a else Nothing
 
-  mergeA h (MapWithDefault a f) (MapWithDefault b g) = let
+  mergeA p (MapWithDefault a f) (MapWithDefault b g) = let
     e x y = if x == y then Just x else Nothing
-    c = h a b
-    l = M.traverseMissing (\_ x -> h x b)
-    r = M.traverseMissing (\_ y -> h a y)
-    h' _ x y = liftA2 e c $ h x y
-    t = M.zipWithMaybeAMatched h'
+    c = p a b
+    p' x y = liftA2 e c $ p x y
+    l = M.traverseMaybeMissing (\_ x -> p' x b)
+    r = M.traverseMaybeMissing (\_ y -> p' a y)
+    t = M.zipWithMaybeAMatched (const p')
     combine = M.mergeA l r t
     in liftA2 MapWithDefault c $ combine f g
 
-  merge h (MapWithDefault a f) (MapWithDefault b g) = let
-    c = h a b
-    l = M.mapMissing (\_ x -> h x b)
-    r = M.mapMissing (\_ y -> h a y)
-    h' _ x y = let
-      z = h x y
+  merge p (MapWithDefault a f) (MapWithDefault b g) = let
+    c = p a b
+    p' x y = let
+      z = p x y
       in if z == c then Nothing else Just z
-    t = M.zipWithMaybeMatched h'
+    l = M.mapMaybeMissing (\_ x -> p' x b)
+    r = M.mapMaybeMissing (\_ y -> p' a y)
+    t = M.zipWithMaybeMatched (const p')
     combine = M.merge l r t
     in MapWithDefault c $ combine f g
+
+  merge3 p (MapWithDefault a f) (MapWithDefault b g) (MapWithDefault c h) = let
+    d = p a b c
+    l1 = M.mapMissing (const (,b))
+    r1 = M.mapMissing (const (a,))
+    t1 = M.zipWithMatched (const (,))
+    combine1 = M.merge l1 r1 t1
+    p' (x,y) z = let
+      v = p x y z
+      in if v == d then Nothing else Just v
+    l2 = M.mapMaybeMissing (\_ (x,y) -> p' (x,y) c)
+    r2 = M.mapMaybeMissing (\_ z -> p' (a,b) z)
+    t2 = M.zipWithMaybeMatched (const p')
+    combine2 = M.merge l2 r2 t2
+    in MapWithDefault d $ combine2 (combine1 f g) h
+
+  mergeA3 p (MapWithDefault a f) (MapWithDefault b g) (MapWithDefault c h) = let
+    d = p a b c
+    e x y
+      | x == y    = Nothing
+      | otherwise = Just y
+    l1 = M.mapMissing (const (,b))
+    r1 = M.mapMissing (const (a,))
+    t1 = M.zipWithMatched (const (,))
+    combine1 = M.merge l1 r1 t1
+    p' (x,y) z = liftA2 e d $ p x y z
+    l2 = M.traverseMaybeMissing (\_ (x,y) -> p' (x,y) c)
+    r2 = M.traverseMaybeMissing (\_ z -> p' (a,b) z)
+    t2 = M.zipWithMaybeAMatched (const p')
+    combine2 = M.mergeA l2 r2 t2
+    in liftA2 MapWithDefault d $ combine2 (combine1 f g) h
 
   pairMappings :: forall a b m. Monoid m => (a -> b -> m) -> MapWithDefault k a -> MapWithDefault k b -> m
   pairMappings p (MapWithDefault a f) (MapWithDefault b g) = let

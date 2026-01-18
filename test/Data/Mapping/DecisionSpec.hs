@@ -120,7 +120,7 @@ spec = do
       foldingCountTrue id 100 t `shouldBe` (1630580875002 :: Int)
 
   describe "Test of neighbours" $ do
-    
+
     let m1 = decision "x" $ fromAscList 1 [(37,2),(74,3)]
     let m2 = decision "y" $ fromAscList 10 [(24,20),(83,30)]
     let m = m1 + m2 :: Decision Int (Piecewise Int) String Int
