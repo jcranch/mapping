@@ -22,14 +22,10 @@
 -- 4. The functionality of Decision
 
 -- TODO
---  * Format types of functions better
---  * Lint and check for long lines
 --  * Increase test coverage
 --  * Examples:
 --     - finding optima
 --     - finding random elements
---    (as examples of the more general functions, already coded, I hope)
---  * Documentation!!!
 --  * Implement mergeA3
 --
 -- MAYBE TO DO
@@ -56,8 +52,10 @@ import qualified Data.Map.Strict as M
 import Data.Mapping
 
 
+-- | Data structures with serial number; within the same data
+-- structure we expect serial numbers to be unique.
 data Serial a = Serial {
-  serial :: Int,
+  serial :: !Int,
   content :: a
 }
 
@@ -100,14 +98,17 @@ memoCompute s r = runIdentity . memoComputeM s r
 instance Ord (Serial a) where
   compare (Serial i _) (Serial j _) = compare i j
 
+-- | The raw material of a decision tree.
 data Node k m a v = Leaf v | Branch a (m (Serial (Node k m a v)))
 
 deriving instance (Eq (m (Serial (Node k m a v))), Eq a, Eq v) => Eq (Node k m a v)
 
 deriving instance (Ord (m (Serial (Node k m a v))), Ord a, Ord v) => Ord (Node k m a v)
 
+-- | A data structure for consistently assigning serial numbers
 newtype Cache a = Cache (Map a (Serial a))
 
+-- | Store something in a cache
 stash :: Ord a => a -> State (Cache a) (Serial a)
 stash x = let
   f (Cache m) = let
@@ -118,20 +119,22 @@ stash x = let
     in Cache <$> M.alterF g x m
   in state f
 
-makeLeaf :: (forall x. Ord x => Ord (m x), Ord a, Ord v)
-         => v
-         -> State (Cache (Node k m a v)) (Serial (Node k m a v))
-makeLeaf = stash . Leaf
+-- | Create a leaf
+leafS :: (forall x. Ord x => Ord (m x), Ord a, Ord v)
+      => v
+      -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+leafS = stash . Leaf
 
-makeBranch :: (Mapping k m, Ord a, Ord v)
-           => a
-           -> m (Serial (Node k m a v))
-           -> State (Cache (Node k m a v)) (Serial (Node k m a v))
-makeBranch a n = case isConst n of
+-- | Create a branch
+branchS :: (Mapping k m, Ord a, Ord v)
+        => a
+        -> m (Serial (Node k m a v))
+        -> State (Cache (Node k m a v)) (Serial (Node k m a v))
+branchS a n = case isConst n of
   Just s -> pure s
   Nothing -> stash (Branch a n)
 
--- |
+-- | Decision trees
 --
 -- Notes:
 --
@@ -144,8 +147,8 @@ makeBranch a n = case isConst n of
 -- node only once.
 --
 -- 3. If you know two Decisions have been built from the same cache,
--- then comparing the serial numbers of their start node is a better
--- equality test than the more generic one provided.
+-- then comparing their serial numbers is a better equality test than
+-- the more generic one provided.
 newtype Decision k m a v = Decision {
   startDecision :: Serial (Node k m a v)
 }
@@ -203,21 +206,25 @@ instance Foldable m => Foldable (Decision k m a) where
     in recurseMap f p . startDecision
 
 
+-- | Run a state-based computation to make a decision tree
 runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v))
                 -> Decision k m a v
 runOnEmptyCache r = Decision . evalState r $ Cache M.empty
 
 
+-- | A state-based mmap
 mapS :: (Mapping k m, Ord a, Ord v)
      => (u -> v)
      -> Serial (Node k m a u)
      -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 mapS f = let
-  q r a = lift . makeBranch a <=< mtraverse r
-  in recurseMapM (makeLeaf . f) q
+  q r a = lift . branchS a <=< mtraverse r
+  in recurseMapM (leafS . f) q
 
 
--- | It's far from clear whether it's possible or not to do a general
+-- | A state-based mtraverse.
+--
+-- It's far from clear whether it's possible or not to do a general
 -- traverse fast in this setting. This algorithm is slow (it may visit
 -- nodes an exponential number of times).
 traverseS :: (Mapping k m, Ord a, Ord v, Applicative f)
@@ -226,11 +233,12 @@ traverseS :: (Mapping k m, Ord a, Ord v, Applicative f)
           -> f (State (Cache (Node k m a v)) (Serial (Node k m a v)))
 traverseS p = let
   inner s = case content s of
-    Leaf v -> makeLeaf <$> p v
-    Branch a m -> fmap (makeBranch a =<<) . getCompose $ mtraverse (Compose . inner) m
+    Leaf v -> leafS <$> p v
+    Branch a m -> fmap (branchS a =<<) . getCompose $ mtraverse (Compose . inner) m
   in inner
 
 
+-- | A state-based merge
 mergeS :: (Mapping k m, Ord a, Ord w)
        => (u -> v -> w)
        -> Serial (Node k m a u)
@@ -240,18 +248,20 @@ mergeS f = let
   pairSerial (Serial i _, Serial j _) = pairIntegers i j
 
   calculate r (s,t) = case (content s, content t) of
-    (Leaf u, Leaf v) -> lift . makeLeaf $ f u v
-    (Leaf _, Branch b n) -> lift . makeBranch b =<< mtraverse (r . (s,)) n
-    (Branch a m, Leaf _) -> lift . makeBranch a =<< mtraverse (r . (,t)) m
+    (Leaf u, Leaf v) -> lift . leafS $ f u v
+    (Leaf _, Branch b n) -> lift . branchS b =<< mtraverse (r . (s,)) n
+    (Branch a m, Leaf _) -> lift . branchS a =<< mtraverse (r . (,t)) m
     (Branch a m, Branch b n) -> case compare a b of
-      LT -> lift . makeBranch a =<< mtraverse (r . (,t)) m
-      GT -> lift . makeBranch b =<< mtraverse (r . (s,)) n
-      EQ -> lift . makeBranch a =<< mergeA (curry r) m n
+      LT -> lift . branchS a =<< mtraverse (r . (,t)) m
+      GT -> lift . branchS b =<< mtraverse (r . (s,)) n
+      EQ -> lift . branchS a =<< mergeA (curry r) m n
   in curry $ memoComputeM pairSerial calculate
 
 
--- | Just as for traverseS, this setting makes it seem unlikely that
--- an efficient algorithm will be possible.
+-- | A state-based mergeA.
+--
+-- Just as for traverseS, this setting makes it seem unlikely that an
+-- efficient algorithm will be possible.
 mergeAS :: (Mapping k m, Ord a, Ord w, Applicative f)
         => (u -> v -> f w)
         -> Serial (Node k m a u)
@@ -259,16 +269,19 @@ mergeAS :: (Mapping k m, Ord a, Ord w, Applicative f)
         -> f (State (Cache (Node k m a w)) (Serial (Node k m a w)))
 mergeAS f = let
   inner s t = case (content s, content t) of
-    (Leaf u, Leaf v) -> makeLeaf <$> f u v
-    (Leaf _, Branch b n) -> fmap (makeBranch b =<<) . getCompose $ mtraverse (Compose . inner s) n
-    (Branch a m, Leaf _) -> fmap (makeBranch a =<<) . getCompose $ mtraverse (Compose . flip inner t) m
+    (Leaf u, Leaf v) -> leafS <$> f u v
+    (Leaf _, Branch b n) ->
+      fmap (branchS b =<<) . getCompose $ mtraverse (Compose . inner s) n
+    (Branch a m, Leaf _) ->
+      fmap (branchS a =<<) . getCompose $ mtraverse (Compose . flip inner t) m
     (Branch a m, Branch b n) -> case compare a b of
-      LT -> fmap (makeBranch a =<<) . getCompose $ mtraverse (Compose . flip inner t) m
-      GT -> fmap (makeBranch b =<<) . getCompose $ mtraverse (Compose . inner s) n
-      EQ -> fmap (makeBranch a =<<) . getCompose $ mergeA (\c -> Compose . inner c) m n
+      LT -> fmap (branchS a =<<) . getCompose $ mtraverse (Compose . flip inner t) m
+      GT -> fmap (branchS b =<<) . getCompose $ mtraverse (Compose . inner s) n
+      EQ -> fmap (branchS a =<<) . getCompose $ mergeA (\c -> Compose . inner c) m n
   in inner
 
 
+-- | A state-based merge3.
 mergeS3 :: (Mapping k m, Ord a, Ord x)
         => (u -> v -> w -> x)
         -> Serial (Node k m a u)
@@ -280,35 +293,35 @@ mergeS3 f = let
   tripleSerial (Serial i _, Serial j _, Serial k _) = tripleIntegers i j k
 
   calculate q (r,s,t) = case (content r, content s, content t) of
-    (Leaf u, Leaf v, Leaf w) -> lift . makeLeaf $ f u v w
-    (Leaf _, Leaf _, Branch c o) -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
-    (Leaf _, Branch b n, Leaf _) -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
-    (Branch a m, Leaf _, Leaf _) -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
+    (Leaf u, Leaf v, Leaf w) -> lift . leafS $ f u v w
+    (Leaf _, Leaf _, Branch c o) -> lift . branchS c =<< mtraverse (q . (r,s,)) o
+    (Leaf _, Branch b n, Leaf _) -> lift . branchS b =<< mtraverse (q . (r,,t)) n
+    (Branch a m, Leaf _, Leaf _) -> lift . branchS a =<< mtraverse (q . (,s,t)) m
     (Branch a m, Branch b n, Leaf _) -> case compare a b of
-      LT -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
-      GT -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
-      EQ -> lift . makeBranch a =<< mergeA (\x y -> q (x,y,t)) m n
+      LT -> lift . branchS a =<< mtraverse (q . (,s,t)) m
+      GT -> lift . branchS b =<< mtraverse (q . (r,,t)) n
+      EQ -> lift . branchS a =<< mergeA (\x y -> q (x,y,t)) m n
     (Branch a m, Leaf _, Branch c o) -> case compare a c of
-      LT -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
-      GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
-      EQ -> lift . makeBranch a =<< mergeA (\x z -> q (x,s,z)) m o
+      LT -> lift . branchS a =<< mtraverse (q . (,s,t)) m
+      GT -> lift . branchS c =<< mtraverse (q . (r,s,)) o
+      EQ -> lift . branchS a =<< mergeA (\x z -> q (x,s,z)) m o
     (Leaf _, Branch b n, Branch c o) -> case compare b c of
-      LT -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
-      GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
-      EQ -> lift . makeBranch b =<< mergeA (\y z -> q (r,y,z)) n o
+      LT -> lift . branchS b =<< mtraverse (q . (r,,t)) n
+      GT -> lift . branchS c =<< mtraverse (q . (r,s,)) o
+      EQ -> lift . branchS b =<< mergeA (\y z -> q (r,y,z)) n o
     (Branch a m, Branch b n, Branch c o) -> case compare a b of
       LT -> case compare a c of
-        LT -> lift . makeBranch a =<< mtraverse (q . (,s,t)) m
-        GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
-        EQ -> lift . makeBranch a =<< mergeA (\x z -> q (x,s,z)) m o
+        LT -> lift . branchS a =<< mtraverse (q . (,s,t)) m
+        GT -> lift . branchS c =<< mtraverse (q . (r,s,)) o
+        EQ -> lift . branchS a =<< mergeA (\x z -> q (x,s,z)) m o
       GT -> case compare b c of
-        LT -> lift . makeBranch b =<< mtraverse (q . (r,,t)) n
-        GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
-        EQ -> lift . makeBranch b =<< mergeA (\y z -> q (r,y,z)) n o
+        LT -> lift . branchS b =<< mtraverse (q . (r,,t)) n
+        GT -> lift . branchS c =<< mtraverse (q . (r,s,)) o
+        EQ -> lift . branchS b =<< mergeA (\y z -> q (r,y,z)) n o
       EQ -> case compare a c of
-        GT -> lift . makeBranch c =<< mtraverse (q . (r,s,)) o
-        LT -> lift . makeBranch a =<< mergeA (\x y -> q (x,y,t)) m n
-        EQ -> lift . makeBranch a =<< mergeA3 (\x y z -> q (x,y,z)) m n o
+        GT -> lift . branchS c =<< mtraverse (q . (r,s,)) o
+        LT -> lift . branchS a =<< mergeA (\x y -> q (x,y,t)) m n
+        EQ -> lift . branchS a =<< mergeA3 (\x y z -> q (x,y,z)) m n o
 
   start r s t = memoComputeM tripleSerial calculate (r,s,t)
   in start
@@ -388,7 +401,8 @@ instance (Ord a, Mapping k m, Neighbourly m) => Neighbourly (Decision k m a) whe
     in memoCompute serial p . Left . startDecision
 
 
-instance (Ord a, FoldableWithIndex k m, Mapping k m) => FoldableWithIndex (Map a k) (Decision k m a) where
+instance (Ord a, FoldableWithIndex k m, Mapping k m)
+    => FoldableWithIndex (Map a k) (Decision k m a) where
 
   ifoldMap f = let
     inner m (Leaf x) = f m x
@@ -407,18 +421,23 @@ satisfyingAssignments :: (Ord a, FoldableWithIndex k m)
                       -> Decision k m a v
                       -> [Map a k]
 satisfyingAssignments t = let
-  p x = if t x then [M.empty] else []
+  p x = [M.empty | t x]
   q f a = let
     h k = Ap . fmap (fmap (M.insert a k)) . f
     in getAp . ifoldMap h
   in recurseMap p q . startDecision
 
+-- | Find all assignments that return True
+--
+-- Again, this can produce very large outputs even with modest-sized
+-- inputs.
 trueAssignments :: (Ord a, FoldableWithIndex k m)
                 => Decision k m a Bool
                 -> [Map a k]
 trueAssignments = satisfyingAssignments id
 
 
+-- | A general algorithm for counts of a decision tree
 generalCount :: (Mapping k m)
              => (a -> Int)
                 -- ^ The serial number of a decision
@@ -447,6 +466,7 @@ generalCount s n c d = let
   in step (-1) . recurseMap p q . startDecision
 
 
+-- | A more specialised summing count
 foldingCount :: (Mapping k m, Num n)
              => (a -> Int)
                 -- ^ The serial number of a decision
@@ -462,6 +482,7 @@ foldingCount s n c = let
   q f = fmap getSum . getAp . foldMap (Ap . fmap Sum . f)
   in generalCount s n c q
 
+-- | Even more specialised: just counts true values
 foldingCountTrue :: (Mapping k m, Num n)
                  => (a -> Int)
                     -- ^ The serial number of a decision
@@ -473,17 +494,24 @@ foldingCountTrue :: (Mapping k m, Num n)
                     -- ^ The count
 foldingCountTrue s n = foldingCount s n (\x -> if x then 1 else 0)
 
+-- | Create a test for a variable (valued in any Boolean)
 genTestS :: (Ord a, Ord b, Boolean b)
          => a
          -> State (Cache (Node Bool OnBool a b)) (Serial (Node Bool OnBool a b))
 genTestS x = do
-  n0 <- makeLeaf false
-  n1 <- makeLeaf true
-  makeBranch x $ OnBool n0 n1
+  n0 <- leafS false
+  n1 <- leafS true
+  branchS x $ OnBool n0 n1
 
--- | A building block for BDDs - tests if a variable is true
+-- | Tests if a variable is true (valued in any Boolean)
 genTest :: (Ord a, Ord b, Boolean b) => a -> Decision Bool OnBool a b
 genTest = runOnEmptyCache . genTestS
+
+-- | Test if a variable is true (specialised to `Bool`)
+testS :: (Ord a)
+      => a
+      -> State (Cache (Node Bool OnBool a Bool)) (Serial (Node Bool OnBool a Bool))
+testS = genTestS
 
 -- | Test if a variable is true (specialised to `Bool`)
 test :: Ord a => a -> Decision Bool OnBool a Bool
@@ -495,8 +523,9 @@ decisionS :: (Mapping k m, Ord a, Ord v)
           => a
           -> m v
           -> State (Cache (Node k m a v)) (Serial (Node k m a v))
-decisionS a m = makeBranch a =<< mtraverse makeLeaf m
+decisionS a m = branchS a =<< mtraverse leafS m
 
+-- | A single decision
 decision :: (Mapping k m, Ord a, Ord v)
          => a
          -> m v
@@ -504,43 +533,57 @@ decision :: (Mapping k m, Ord a, Ord v)
 decision a = runOnEmptyCache . decisionS a
 
 
-decideAllS :: (Mapping k m, Ord a) => Map a (m Bool) -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
+-- | Build a test imposing conditions which must be true for all
+-- variables in the map
+decideAllS :: (Mapping k m, Ord a)
+           => Map a (m Bool)
+           -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
 decideAllS = let
-  begin [] = makeLeaf True
+  begin [] = leafS True
   begin l = do
-    f <- makeLeaf False
-    t <- makeLeaf True
+    f <- leafS False
+    t <- leafS True
     continue f t l
   continue _ u [] = pure u
   continue f u ((a,m):xs) = do
-    v <- makeBranch a (mmap (\i -> if i then u else f) m)
+    v <- branchS a (mmap (\i -> if i then u else f) m)
     continue f v xs
   in begin . M.toDescList
 
+-- | A test imposing conditions which must be true for all variables
+-- in the map
 decideAll :: (Mapping k m, Ord a) => Map a (m Bool) -> Decision k m a Bool
 decideAll = runOnEmptyCache . decideAllS
 
 
-decideAnyS :: (Mapping k m, Ord a) => Map a (m Bool) -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
+-- | Build a test imposing conditions which must be true for at least
+-- one variable in the map
+decideAnyS :: (Mapping k m, Ord a)
+           => Map a (m Bool)
+           -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
 decideAnyS = let
-  begin [] = makeLeaf False
+  begin [] = leafS False
   begin l = do
-    t <- makeLeaf True
-    f <- makeLeaf False
+    t <- leafS True
+    f <- leafS False
     continue t f l
   continue _ u [] = pure u
   continue t u ((a,m):xs) = do
-    v <- makeBranch a (mmap (\i -> if i then t else u) m)
+    v <- branchS a (mmap (\i -> if i then t else u) m)
     continue t v xs
   in begin . M.toDescList
 
+-- | A test imposing conditions which must be true for at least one
+-- variable in the map
 decideAny :: (Mapping k m, Ord a) => Map a (m Bool) -> Decision k m a Bool
 decideAny = runOnEmptyCache . decideAnyS
 
 
 
 -- | Display the structure of a cache
-debugShowCache :: Mapping k m => (Show a, Show v, Show (m Int)) => Cache (Node k m a v) -> [String]
+debugShowCache :: (Mapping k m, Show a, Show v, Show (m Int))
+               => Cache (Node k m a v)
+               -> [String]
 debugShowCache (Cache c) = let
 
   entries = IM.fromList [(serial s,content s) | s <- M.elems c]
@@ -575,12 +618,15 @@ recoverCache = let
 
 
 -- | Display the structure of a Decision
-debugShow :: (Mapping k m, Ord a, Ord v) => (Show a, Show v, Show (m Int)) => Decision k m a v -> String
+debugShow :: (Mapping k m, Ord a, Ord v, Show a, Show v, Show (m Int))
+          => Decision k m a v
+          -> String
 debugShow (Decision x@(Serial s _)) = let
   prefix i = ((if i == s then "* " else "  ") <>)
   in unlines [prefix i l | (i,l) <- zip [0..] (debugShowCache (recoverCache x))]
 
 
+-- | Build a simplified decision, filling in some values in advance
 restrictS :: (Mapping k m, Ord a, Ord v)
           => (a -> Maybe k)
           -> Serial (Node k m a v)
@@ -588,8 +634,8 @@ restrictS :: (Mapping k m, Ord a, Ord v)
 restrictS f = let
   q r a m = case f a of
     Just b -> r $ act m b
-    Nothing -> lift . makeBranch a =<< mtraverse r m
-  in recurseMapM makeLeaf q
+    Nothing -> lift . branchS a =<< mtraverse r m
+  in recurseMapM leafS q
 
 -- | Simplify a Decision by fill in some values in advance
 -- > act (restrict h d) f = let

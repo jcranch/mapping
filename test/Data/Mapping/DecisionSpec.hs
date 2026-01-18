@@ -1,6 +1,7 @@
 module Data.Mapping.DecisionSpec where
 
 import Prelude hiding ((&&), (||), not, all)
+import Data.Foldable (foldlM)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
@@ -30,82 +31,84 @@ completeAssignments (v:vs) m = let
 spec :: Spec
 spec = do
 
-  let x = test "x"
-  let y = test "y"
+  describe "Boolean algebra" $ do
 
-  describe "Basic tests of act" $ do
+    let x = test "x"
+    let y = test "y"
 
-    it "x false on {}" $ do
-      boolAct x []    `shouldBe` False
-    it "x true on {x}" $ do
-      boolAct x ["x"] `shouldBe` True
+    describe "Basic tests of act" $ do
 
-  describe "Basic tests of mmap" $ do
+      it "x false on {}" $ do
+        boolAct x []    `shouldBe` False
+      it "x true on {x}" $ do
+        boolAct x ["x"] `shouldBe` True
 
-    it "not x true on {}" $ do
-      boolAct (not x) []    `shouldBe` True
-    it "not x false on {x}" $ do
-      boolAct (not x) ["x"] `shouldBe` False
+    describe "Basic tests of mmap" $ do
 
-  describe "Basic tests of merge" $ do
+      it "not x true on {}" $ do
+        boolAct (not x) []    `shouldBe` True
+      it "not x false on {x}" $ do
+        boolAct (not x) ["x"] `shouldBe` False
 
-    it "x && y true on {}" $ do
-      boolAct (x && y) []         `shouldBe` False
-    it "x && y true on {x}" $ do
-      boolAct (x && y) ["x"]      `shouldBe` False
-    it "x && y true on {y}" $ do
-      boolAct (x && y) ["y"]      `shouldBe` False
-    it "x && y true on {x,y}" $ do
-      boolAct (x && y) ["x", "y"] `shouldBe` True
+    describe "Basic tests of merge" $ do
 
-    it "x || y true on {}" $ do
-      boolAct (x || y) []         `shouldBe` False
-    it "x || y true on {x}" $ do
-      boolAct (x || y) ["x"]      `shouldBe` True
-    it "x || y true on {y}" $ do
-      boolAct (x || y) ["y"]      `shouldBe` True
-    it "x || y true on {x,y}" $ do
-      boolAct (x || y) ["x", "y"] `shouldBe` True
+      it "x && y true on {}" $ do
+        boolAct (x && y) []         `shouldBe` False
+      it "x && y true on {x}" $ do
+        boolAct (x && y) ["x"]      `shouldBe` False
+      it "x && y true on {y}" $ do
+        boolAct (x && y) ["y"]      `shouldBe` False
+      it "x && y true on {x,y}" $ do
+        boolAct (x && y) ["x", "y"] `shouldBe` True
 
-    it "y && x true on {}" $ do
-      boolAct (y && x) []         `shouldBe` False
-    it "y && x true on {x}" $ do
-      boolAct (y && x) ["x"]      `shouldBe` False
-    it "y && x true on {y}" $ do
-      boolAct (y && x) ["y"]      `shouldBe` False
-    it "y && x true on {x,y}" $ do
-      boolAct (y && x) ["x", "y"] `shouldBe` True
+      it "x || y true on {}" $ do
+        boolAct (x || y) []         `shouldBe` False
+      it "x || y true on {x}" $ do
+        boolAct (x || y) ["x"]      `shouldBe` True
+      it "x || y true on {y}" $ do
+        boolAct (x || y) ["y"]      `shouldBe` True
+      it "x || y true on {x,y}" $ do
+        boolAct (x || y) ["x", "y"] `shouldBe` True
 
-    it "y || x true on {}" $ do
-      boolAct (y || x) []         `shouldBe` False
-    it "y || x true on {x}" $ do
-      boolAct (y || x) ["x"]      `shouldBe` True
-    it "y || x true on {y}" $ do
-      boolAct (y || x) ["y"]      `shouldBe` True
-    it "y || x true on {x,y}" $ do
-      boolAct (y || x) ["x", "y"] `shouldBe` True
+      it "y && x true on {}" $ do
+        boolAct (y && x) []         `shouldBe` False
+      it "y && x true on {x}" $ do
+        boolAct (y && x) ["x"]      `shouldBe` False
+      it "y && x true on {y}" $ do
+        boolAct (y && x) ["y"]      `shouldBe` False
+      it "y && x true on {x,y}" $ do
+        boolAct (y && x) ["x", "y"] `shouldBe` True
 
-  describe "Check of trueAssignments" $ do
+      it "y || x true on {}" $ do
+        boolAct (y || x) []         `shouldBe` False
+      it "y || x true on {x}" $ do
+        boolAct (y || x) ["x"]      `shouldBe` True
+      it "y || x true on {y}" $ do
+        boolAct (y || x) ["y"]      `shouldBe` True
+      it "y || x true on {x,y}" $ do
+        boolAct (y || x) ["x", "y"] `shouldBe` True
 
-    let x0y0 = M.fromList [("x", False), ("y", False)]
-    let x0y1 = M.fromList [("x", False), ("y", True)]
-    let x1y0 = M.fromList [("x", True), ("y", False)]
-    let x1y1 = M.fromList [("x", True), ("y", True)]
+    describe "Check of trueAssignments" $ do
 
-    it "Should work on &&" $ do
-      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (x && y))
-        `shouldBe` S.fromList [x1y1]
-    it "Should work on ||" $ do
-      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (x || y))
-        `shouldBe` S.fromList [x0y1, x1y0, x1y1]
-    it "Should work on not (1)" $ do
-      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (not x))
-        `shouldBe` S.fromList [x0y0, x0y1]
-    it "Should work on not (2)" $ do
-      S.fromList (completeAssignments ["x","y"] =<< trueAssignments (not y))
-        `shouldBe` S.fromList [x0y0, x1y0]
+      let x0y0 = M.fromList [("x", False), ("y", False)]
+      let x0y1 = M.fromList [("x", False), ("y", True)]
+      let x1y0 = M.fromList [("x", True), ("y", False)]
+      let x1y1 = M.fromList [("x", True), ("y", True)]
 
-  describe "Independent maximal sets in C_100" $ do
+      it "Should work on &&" $ do
+        S.fromList (completeAssignments ["x","y"] =<< trueAssignments (x && y))
+          `shouldBe` S.fromList [x1y1]
+      it "Should work on ||" $ do
+        S.fromList (completeAssignments ["x","y"] =<< trueAssignments (x || y))
+          `shouldBe` S.fromList [x0y1, x1y0, x1y1]
+      it "Should work on not (1)" $ do
+        S.fromList (completeAssignments ["x","y"] =<< trueAssignments (not x))
+          `shouldBe` S.fromList [x0y0, x0y1]
+      it "Should work on not (2)" $ do
+        S.fromList (completeAssignments ["x","y"] =<< trueAssignments (not y))
+          `shouldBe` S.fromList [x0y0, x1y0]
+
+  describe "Independent maximal sets in C_100 (mapping style)" $ do
 
     -- We build a decision tree representing all maximal subsets of
     -- {0,...,99} (regarded cyclically) with no consecutive elements.
@@ -113,11 +116,38 @@ spec = do
     let l3 = (98,99,0):(99,0,1):[(n,n+1,n+2) | n <- [0..97]]
     let independent = all (\(i,j) -> not (test i && test j)) l2
     let maximal = all (\(i,j,k) -> test i || test j || test k) l3
-    let t = independent && maximal
+    let a = independent && maximal
 
     -- Mentioned in Knuth
     it "should have the right count" $ do
-      foldingCountTrue id 100 t `shouldBe` (1630580875002 :: Int)
+      foldingCountTrue id 100 a `shouldBe` (1630580875002 :: Int)
+
+  describe "Independent maximal sets in C_100 (state style)" $ do
+
+    -- As above, but using the state-based functionality
+
+    let l2 = (99,0):[(n,n+1) | n <- [0..98]]
+    let l3 = (98,99,0):(99,0,1):[(n,n+1,n+2) | n <- [0..97]]
+    let { addIndependent m (i,j) = do
+      x <- testS i
+      y <- testS j
+      z <- mergeS (&&) x y
+      w <- mapS not z
+      mergeS (&&) m w }
+    let { addMaximal m (i,j,k) = do
+      x <- testS i
+      y <- testS j
+      z <- testS k
+      u <- mergeS (||) x y
+      v <- mergeS (||) u z
+      mergeS (&&) m v }
+    let { a = runOnEmptyCache $ do
+      t <- leafS True
+      independent <- foldlM addIndependent t l2
+      foldlM addMaximal independent l3 }
+
+    it "should have the right count" $ do
+      foldingCountTrue id 100 a `shouldBe` (1630580875002 :: Int)
 
   describe "Test of neighbours" $ do
 
@@ -139,7 +169,9 @@ spec = do
     let xyz = M.fromList [("X", 1), ("Y", 1), ("Z", 1)] -- monomial 3
     let monomials = M.fromList [(xy2, 1::Int), (x2y, 2), (xyz, 3)]
     let f i b = if b then i else 0
-    let d = M.foldlWithKey' (\t m i -> merge max t (mmap (f i) . decideAll $ fmap greaterThanOrEqual m)) (cst 0) monomials
+    let { d = M.foldlWithKey' (\t m i -> merge max t (mmap (f i) . decideAll $ fmap greaterThanOrEqual m))
+          (cst 0)
+          monomials }
     let mapAct m = act d (\a -> M.findWithDefault 0 a $ M.fromList m)
 
     it "should get the right monomial for w^2y^4" $ do

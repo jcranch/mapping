@@ -96,7 +96,10 @@ innerMerge p = let
   in go
 
 
-innerMergeA :: (Ord k, Applicative f) => (x -> y -> f z) -> x -> y -> [(k,x)] -> [(k,y)] -> f [(k,z)]
+innerMergeA :: (Ord k, Applicative f)
+            => (x -> y -> f z)
+            -> x -> y
+            -> [(k,x)] -> [(k,y)] -> f [(k,z)]
 innerMergeA p = let
   go x _ [] v = traverse (traverse (p x)) v
   go _ y u [] = traverse (traverse (flip p y)) u
@@ -107,7 +110,10 @@ innerMergeA p = let
   in go
 
 
-innerMerge3 :: Ord k => (x -> y -> z -> w) -> x -> y -> z -> [(k,x)] -> [(k,y)] -> [(k,z)] -> [(k,w)]
+innerMerge3 :: Ord k
+            => (x -> y -> z -> w)
+            -> x -> y -> z
+            -> [(k,x)] -> [(k,y)] -> [(k,z)] -> [(k,w)]
 innerMerge3 p = let
   go x y z [] v w = innerMerge (p x) y z v w
   go x y z u [] w = innerMerge (\i -> p i y) x z u w
@@ -128,7 +134,10 @@ innerMerge3 p = let
   in go
 
 
-innerMergeA3 :: (Applicative f, Ord k) => (x -> y -> z -> f w) -> x -> y -> z -> [(k,x)] -> [(k,y)] -> [(k,z)] -> f [(k,w)]
+innerMergeA3 :: (Applicative f, Ord k)
+             => (x -> y -> z -> f w)
+             -> x -> y -> z
+             -> [(k,x)] -> [(k,y)] -> [(k,z)] -> f [(k,w)]
 innerMergeA3 p = let
   go x y z [] v w = innerMergeA (p x) y z v w
   go x y z u [] w = innerMergeA (\i -> p i y) x z u w

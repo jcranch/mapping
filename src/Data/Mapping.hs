@@ -60,10 +60,14 @@ class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
     in runIdentity $ mergeA q m n
 
   -- | Merge three Mappings
-  merge3 :: Ord x => (u -> v -> w -> x) -> m u -> m v -> m w -> m x
+  merge3 :: Ord x
+         => (u -> v -> w -> x)
+         -> m u -> m v -> m w -> m x
 
   -- | Merge three Mappings
-  mergeA3 :: (Applicative f, Ord x) => (u -> v -> w -> f x) -> m u -> m v -> m w -> f (m x)
+  mergeA3 :: (Applicative f, Ord x)
+          => (u -> v -> w -> f x)
+          -> m u -> m v -> m w -> f (m x)
 
   -- | A simultaneous foldMap over two maps; pairMappings is to
   -- foldMap as mmerge is to mmap
@@ -222,10 +226,14 @@ instance Mapping Bool OnBool where
     | otherwise = Nothing
   mmap = fmap
   mtraverse = traverse
-  mergeA h (OnBool x1 y1) (OnBool x2 y2) = liftA2 OnBool (h x1 x2) (h y1 y2)
-  merge h (OnBool x1 y1) (OnBool x2 y2) = OnBool (h x1 x2) (h y1 y2)
-  mergeA3 h (OnBool x1 y1) (OnBool x2 y2) (OnBool x3 y3) = liftA2 OnBool (h x1 x2 x3) (h y1 y2 y3)
-  merge3 h (OnBool x1 y1) (OnBool x2 y2) (OnBool x3 y3) = OnBool (h x1 x2 x3) (h y1 y2 y3)
+  mergeA h (OnBool x1 y1) (OnBool x2 y2) =
+    liftA2 OnBool (h x1 x2) (h y1 y2)
+  merge h (OnBool x1 y1) (OnBool x2 y2) =
+    OnBool (h x1 x2) (h y1 y2)
+  mergeA3 h (OnBool x1 y1) (OnBool x2 y2) (OnBool x3 y3) =
+    liftA2 OnBool (h x1 x2 x3) (h y1 y2 y3)
+  merge3 h (OnBool x1 y1) (OnBool x2 y2) (OnBool x3 y3) =
+    OnBool (h x1 x2 x3) (h y1 y2 y3)
   pairMappings p (OnBool x1 y1) (OnBool x2 y2) = p x1 x2 <> p y1 y2
   bind f (OnBool u v) = OnBool (onFalse (f u)) (onTrue (f v))
 
@@ -268,10 +276,14 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
   isConst (OnMaybe x a) = do
     y <- isConst a
     if x == y then Just x else Nothing
-  merge h (OnMaybe x a) (OnMaybe y b) = OnMaybe (h x y) (merge h a b)
-  mergeA h (OnMaybe x a) (OnMaybe y b) = liftA2 OnMaybe (h x y) (mergeA h a b)
-  merge3 h (OnMaybe x a) (OnMaybe y b) (OnMaybe z c) = OnMaybe (h x y z) (merge3 h a b c)
-  mergeA3 h (OnMaybe x a) (OnMaybe y b) (OnMaybe z c) = liftA2 OnMaybe (h x y z) (mergeA3 h a b c)
+  merge h (OnMaybe x a) (OnMaybe y b) =
+    OnMaybe (h x y) (merge h a b)
+  mergeA h (OnMaybe x a) (OnMaybe y b) =
+    liftA2 OnMaybe (h x y) (mergeA h a b)
+  merge3 h (OnMaybe x a) (OnMaybe y b) (OnMaybe z c) =
+    OnMaybe (h x y z) (merge3 h a b c)
+  mergeA3 h (OnMaybe x a) (OnMaybe y b) (OnMaybe z c) =
+    liftA2 OnMaybe (h x y z) (mergeA3 h a b c)
   pairMappings p (OnMaybe x a) (OnMaybe y b) = p x y <> pairMappings p a b
   bind f (OnMaybe x m) = OnMaybe (onNothing (f x)) (bind (onJust . f) m)
 
@@ -297,7 +309,8 @@ data OnEither k l m n v = OnEither {
 instance (Foldable m, Foldable n) => Foldable (OnEither k l m n) where
   foldMap p (OnEither f g) = foldMap p f <> foldMap p g
 
-instance (FoldableWithIndex k m, FoldableWithIndex l n) => FoldableWithIndex (Either k l) (OnEither k l m n) where
+instance (FoldableWithIndex k m, FoldableWithIndex l n)
+    => FoldableWithIndex (Either k l) (OnEither k l m n) where
   ifoldMap p (OnEither f g) = ifoldMap (p . Left) f <> ifoldMap (p . Right) g
 
 instance (Mapping k m,
@@ -312,10 +325,14 @@ instance (Mapping k m,
     x <- isConst f
     y <- isConst g
     if x == y then Just x else Nothing
-  mergeA h (OnEither f1 g1) (OnEither f2 g2) = liftA2 OnEither (mergeA h f1 f2) (mergeA h g1 g2)
-  merge h (OnEither f1 g1) (OnEither f2 g2) = OnEither (merge h f1 f2) (merge h g1 g2)
-  mergeA3 p (OnEither f1 g1) (OnEither f2 g2) (OnEither f3 g3) = liftA2 OnEither (mergeA3 p f1 f2 f3) (mergeA3 p g1 g2 g3)
-  merge3 p (OnEither f1 g1) (OnEither f2 g2) (OnEither f3 g3) = OnEither (merge3 p f1 f2 f3) (merge3 p g1 g2 g3)
+  mergeA h (OnEither f1 g1) (OnEither f2 g2) =
+    liftA2 OnEither (mergeA h f1 f2) (mergeA h g1 g2)
+  merge h (OnEither f1 g1) (OnEither f2 g2) =
+    OnEither (merge h f1 f2) (merge h g1 g2)
+  mergeA3 p (OnEither f1 g1) (OnEither f2 g2) (OnEither f3 g3) =
+    liftA2 OnEither (mergeA3 p f1 f2 f3) (mergeA3 p g1 g2 g3)
+  merge3 p (OnEither f1 g1) (OnEither f2 g2) (OnEither f3 g3) =
+    OnEither (merge3 p f1 f2 f3) (merge3 p g1 g2 g3)
   pairMappings p (OnEither f1 g1) (OnEither f2 g2) = pairMappings p f1 f2 <> pairMappings p g1 g2
   bind f (OnEither u v) = OnEither (bind (onLeft . f) u) (bind (onRight . f) v)
 
