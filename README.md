@@ -1,31 +1,21 @@
 # Mappings
 
-## What's it do?
+This package offers a general typeclass
+[`Mapping`](src/Data/Mapping.hs) for data structures which represent
+functions `k -> v` (possibly for fixed `k`, but arbitrary ordered
+`v`).
 
-This package does two jobs:
+There are some fairly straightforward examples: constant mappings, and
+those which build up mappings where `k` is `Either`, or a pair, or
+`Maybe`, or `Bool`.
 
-* It offers a general typeclass [`Mapping`](src/Data/Mapping.hs) for
-  data structures which represent functions `k -> v` (for fixed `k`,
-  but arbitrary ordered `v`).
+Three less trivial implementations are provided:
 
-  There are some fairly straightforward examples: constant mappings,
-  and those which build up mappings where `k` is `Either`, or a pair,
-  or `Maybe`, or `Bool`.
+* [Decision diagrams](src/Data/Mapping/Decision.hs), with nodes
+  which may themselves be an arbitrary `Mapping`;
 
-* Three less trivial implementations are provided:
+* [Piecewise constant maps](src/Data/Mapping/Piecewise.hs) on an
+  ordered domain `k`;
 
-    * [Decision diagrams](src/Data/Mapping/Decision.hs), with nodes
-       which may themselves be an arbitrary `Mapping` (there is some
-       code for viewing these in the `examples` directory);
-
-    * [Piecewise constant maps](src/Data/Mapping/Piecewise.hs) on an
-       ordered domain `k`;
-
-    * [Maps equipped with a default value](src/Data/Mapping/MapWithDefault.hs).
-
-
-## Why did I bother?
-
-The aim is to use decision diagrams with nodes that are piecewise
-constant maps to store monomials for Grobner basis algorithms.
+* [Maps equipped with a default value](src/Data/Mapping/MapWithDefault.hs).
 

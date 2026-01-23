@@ -9,10 +9,23 @@
 
 -- | Decision diagrams, parametric in the mapping type for the decisions.
 --
--- This is inspired by binary decision diagrams (as described in detail in
--- Knuth's The Art of Computer Programming, volume 4A); these are the specific
--- case where m is `BoolMapping` and v is `Bool`. Our algorithms are mostly
--- straightforward generalisations of those considered there.
+-- This is inspired by binary decision diagrams (as described in
+-- detail in Knuth's The Art of Computer Programming, volume 4A);
+-- these are the specific case where m is `OnBool` and v is
+-- `Bool`. Our algorithms are mostly straightforward generalisations
+-- of those considered there.
+--
+-- Some examples of how to use this code can be seen in
+-- `examples/View.hs` and in `test/Data/Mapping/DecisionSpec.hs`.
+--
+-- Broadly speaking, there are two ways of using the code:
+--
+-- * It can be used directly as a `Mapping`.
+--
+-- * One can (with a tiny bit more effort) use a layer of functions
+--   which return in the State monad. These functions mostly have
+--   names ending in 'S' (for 'State'), and the Mapping functionality
+--   mostly uses these under the surface.
 --
 -- Four layers of functions:
 --
@@ -21,14 +34,14 @@
 -- 3. Cache-manipulating versions of standard functions
 -- 4. The functionality of Decision
 
--- TODO
+-- TODO:
 --  * Increase test coverage
 --  * Examples:
 --     - finding optima
 --     - finding random elements
 --  * Implement mergeA3
 --
--- MAYBE TO DO
+-- MAYBETODO:
 --  * Optimisation by reordering
 module Data.Mapping.Decision where
 
