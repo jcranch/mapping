@@ -1,5 +1,5 @@
 name:                mappings
-version:             0.3.4.0
+version:             0.4.0.0
 github:              "jcranch/mapping"
 license:             BSD-3-Clause
 author:              "James Cranch"
@@ -22,6 +22,7 @@ dependencies:
 - formatting             >= 7.0.0     &&  < 7.3
 - indexed-traversable    >= 0.1.1     &&  < 0.2
 - partialord             >= 0.0.2     &&  < 0.2
+- transformers           >= 0.6       &&  < 0.7
 
 language:            GHC2021
 
