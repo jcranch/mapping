@@ -158,7 +158,7 @@ innerMergeA3 p = let
   in go
 
 
-instance Ord k => Mapping k (Piecewise k) where
+instance Ord k => Mapping Eq k (Piecewise k) where
 
   cst x = Piecewise x M.empty
 
@@ -211,16 +211,16 @@ instance Neighbourly (Piecewise k) where
     pairs _           = []
     in S.fromList . pairs $ toList m
 
-deriving via (AlgebraWrapper k (Piecewise k) b)
+deriving via (AlgebraWrapper Eq k (Piecewise k) b)
   instance (Ord k, Ord b, Semigroup b) => Semigroup (Piecewise k b)
 
-deriving via (AlgebraWrapper k (Piecewise k) b)
+deriving via (AlgebraWrapper Eq k (Piecewise k) b)
   instance (Ord k, Ord b, Monoid b) => Monoid (Piecewise k b)
 
-deriving via (AlgebraWrapper k (Piecewise k) b)
+deriving via (AlgebraWrapper Eq k (Piecewise k) b)
   instance (Ord k, Ord b, Num b) => Num (Piecewise k b)
 
-deriving via (AlgebraWrapper k (Piecewise k) b)
+deriving via (AlgebraWrapper Eq k (Piecewise k) b)
   instance (Ord k, Ord b, Boolean b) => Boolean (Piecewise k b)
 
 -- | Alter keys according to a function, assumed to be monotone (not checked)

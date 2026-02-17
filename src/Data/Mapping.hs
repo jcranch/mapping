@@ -1,25 +1,23 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Data.Mapping where
 
-#if MIN_VERSION_GLASGOW_HASKELL(9,6,0,0)
-#else
-import Control.Applicative (liftA2)
-#endif
 import Prelude hiding (not, (&&), (||))
 import Data.Algebra.Boolean (Boolean(..), AllB(..))
 import Data.Bool (bool)
+import Data.Constraint.Trivial (Unconstrained)
 import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Function (on)
 import Data.Functor.Const (Const(..))
 import Data.Functor.Identity (Identity(..))
-import Data.Kind (Type)
+import Data.Kind (Constraint, Type)
 import Data.PartialOrd
 import Data.Set (Set)
 import qualified Data.Set as S
@@ -32,7 +30,7 @@ import Data.Void (Void)
 -- values that appear. Given that a value can be associated with a
 -- very large collection of keys, the only folds that normally make
 -- sense are those over idempotent monoids.
-class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
+class (Foldable m, forall x. c x => c (m x)) => Mapping (c :: Type -> Constraint) (k :: Type) (m :: Type -> Type) | m -> k, m -> c where
 
   -- | Form a constant Mapping
   cst :: v -> m v
@@ -41,44 +39,44 @@ class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
   act :: m v -> k -> v
 
   -- | Is the Mapping a constant (and if so with what value)?
-  isConst :: Ord v => m v -> Maybe v
+  isConst :: c v => m v -> Maybe v
 
   -- | A constrained Traverse
-  mtraverse :: (Applicative f, Ord v) => (u -> f v) -> m u -> f (m v)
+  mtraverse :: (Applicative f, c v) => (u -> f v) -> m u -> f (m v)
 
   -- | A constrained Functor
-  mmap :: Ord v => (u -> v) -> m u -> m v
+  mmap :: c v => (u -> v) -> m u -> m v
   mmap p = runIdentity . mtraverse (Identity . p)
 
   -- | Merge two Mappings, valued in an applicative
-  mergeA :: (Applicative f, Ord w) => (u -> v -> f w) -> m u -> m v -> f (m w)
+  mergeA :: (Applicative f, c w) => (u -> v -> f w) -> m u -> m v -> f (m w)
 
   -- | Merge two Mappings
-  merge :: Ord w => (u -> v -> w) -> m u -> m v -> m w
+  merge :: c w => (u -> v -> w) -> m u -> m v -> m w
   merge p m n = let
     q x y = Identity $ p x y
     in runIdentity $ mergeA q m n
 
   -- | Merge three Mappings
-  merge3 :: Ord x
+  merge3 :: c x
          => (u -> v -> w -> x)
          -> m u -> m v -> m w -> m x
 
   -- | Merge three Mappings
-  mergeA3 :: (Applicative f, Ord x)
+  mergeA3 :: (Applicative f, c x)
           => (u -> v -> w -> f x)
           -> m u -> m v -> m w -> f (m x)
 
   -- | A simultaneous foldMap over two maps; pairMappings is to
   -- foldMap as mmerge is to mmap
-  pairMappings :: forall a u v. (Monoid a) => (u -> v -> a) -> m u -> m v -> a
+  pairMappings :: forall a u v. (Monoid a, c Void) => (u -> v -> a) -> m u -> m v -> a
   pairMappings p m n = let
     q :: u -> v -> Const a Void
     q x y = Const $ p x y
     in getConst (mergeA q m n)
 
   -- | A monad-like structure
-  bind :: (Ord u, Ord v) => (u -> m v) -> m u -> m v
+  bind :: (c u, c v, Ord u, c (Either v u)) => (u -> m v) -> m u -> m v
   bind f m = let
     start [] = error "bind: expected some values"
     start [x] = f x
@@ -99,16 +97,16 @@ class (Foldable m, forall x. Ord x => Ord (m x)) => Mapping k m | m -> k where
 
 -- | This commonly-used function is the reason why we have three-way
 -- merges in the typeclass
-boolBind :: (Mapping k m, Ord v) => m v -> m v -> m Bool -> m v
+boolBind :: (Mapping c k m, c v) => m v -> m v -> m Bool -> m v
 boolBind = merge3 bool
 
 
-values :: (Mapping k m, Ord v) => m v -> Set v
+values :: (Mapping c k m, Ord v) => m v -> Set v
 values = foldMap S.singleton
 
 
 -- | What values can these two take simultaneously?
-mutualValues :: (Ord u, Ord v, Mapping k m) => m u -> m v -> Set (u, v)
+mutualValues :: (Ord u, Ord v, c Void, Mapping c k m) => m u -> m v -> Set (u, v)
 mutualValues = pairMappings $ curry S.singleton
 
 
@@ -121,15 +119,15 @@ class Neighbourly m where
 -- | A wrapper for representing pointwise algebraic structures on a Mapping
 --
 -- Eventually would like to use this only for "deriving via"
-newtype AlgebraWrapper k m a = AlgebraWrapper { algebraUnwrap :: m a }
+newtype AlgebraWrapper (c :: Type -> Constraint) k m a = AlgebraWrapper { algebraUnwrap :: m a }
 
-instance (Mapping k m, Ord a, Semigroup a) => Semigroup (AlgebraWrapper k m a) where
+instance (Mapping c k m, c a, Semigroup a) => Semigroup (AlgebraWrapper c k m a) where
   (<>) = (AlgebraWrapper .) . merge (<>) `on` algebraUnwrap
 
-instance (Mapping k m, Ord a, Monoid a) => Monoid (AlgebraWrapper k m a) where
+instance (Mapping c k m, c a, Monoid a) => Monoid (AlgebraWrapper c k m a) where
   mempty = AlgebraWrapper $ cst mempty
 
-instance (Mapping k m, Ord a, Num a) => Num (AlgebraWrapper k m a) where
+instance (Mapping c k m, c a, Num a) => Num (AlgebraWrapper c k m a) where
   (+) =  (AlgebraWrapper .) . merge (+) `on` algebraUnwrap
   (-) =  (AlgebraWrapper .) . merge (-) `on` algebraUnwrap
   (*) =  (AlgebraWrapper .) . merge (*) `on` algebraUnwrap
@@ -138,7 +136,7 @@ instance (Mapping k m, Ord a, Num a) => Num (AlgebraWrapper k m a) where
   negate = AlgebraWrapper . mmap negate . algebraUnwrap
   signum = AlgebraWrapper . mmap signum . algebraUnwrap
 
-instance (Mapping k m, Ord a, Boolean a) => Boolean (AlgebraWrapper k m a) where
+instance (Mapping c k m, c a, Boolean a) => Boolean (AlgebraWrapper c k m a) where
   true = AlgebraWrapper $ cst true
   false = AlgebraWrapper $ cst false
   not = AlgebraWrapper . mmap not . algebraUnwrap
@@ -149,6 +147,7 @@ instance (Mapping k m, Ord a, Boolean a) => Boolean (AlgebraWrapper k m a) where
   (<-->) = (AlgebraWrapper .) . merge (<-->) `on` algebraUnwrap
 
 
+
 -- | Constant functions (on any domain)
 newtype Constant k v = Constant { constantValue :: v }
   deriving (Eq, Ord)
@@ -156,7 +155,7 @@ newtype Constant k v = Constant { constantValue :: v }
 instance Foldable (Constant k) where
   foldMap f (Constant a) = f a
 
-instance Mapping k (Constant k) where
+instance Mapping Unconstrained k (Constant k) where
   cst = Constant
   act (Constant x) _ = x
   isConst (Constant x) = Just x
@@ -202,6 +201,7 @@ instance (Boolean v) => Boolean (Constant k v) where
   Constant x --> Constant y = Constant (x --> y)
 
 
+
 -- | Binary decisions, as functions defined on Bool
 data OnBool a = OnBool {
   onFalse :: a,
@@ -217,7 +217,7 @@ instance FoldableWithIndex Bool OnBool where
 instance Traversable OnBool where
   traverse f (OnBool x y) = liftA2 OnBool (f x) (f y)
 
-instance Mapping Bool OnBool where
+instance Mapping Eq Bool OnBool where
   cst x = OnBool x x
   act (OnBool x _) False = x
   act (OnBool _ x) True = x
@@ -242,32 +242,32 @@ instance Neighbourly OnBool where
     | x == y    = S.empty
     | otherwise = S.singleton (x, y)
 
-deriving via (AlgebraWrapper Bool OnBool a)
-  instance (Ord a, Semigroup a) => Semigroup (OnBool a)
+deriving via (AlgebraWrapper Eq Bool OnBool a)
+  instance (Eq a, Semigroup a) => Semigroup (OnBool a)
 
-deriving via (AlgebraWrapper Bool OnBool a)
-  instance (Ord a, Monoid a) => Monoid (OnBool a)
+deriving via (AlgebraWrapper Eq Bool OnBool a)
+  instance (Eq a, Monoid a) => Monoid (OnBool a)
 
-deriving via (AlgebraWrapper Bool OnBool a)
-  instance (Ord a, Num a) => Num (OnBool a)
+deriving via (AlgebraWrapper Eq Bool OnBool a)
+  instance (Eq a, Num a) => Num (OnBool a)
 
-deriving via (AlgebraWrapper Bool OnBool b)
-  instance (Ord b, Boolean b) => Boolean (OnBool b)
+deriving via (AlgebraWrapper Eq Bool OnBool b)
+  instance (Eq b, Boolean b) => Boolean (OnBool b)
 
 
 -- | Maps on Maybe
-data OnMaybe k m v = OnMaybe {
+data OnMaybe c k m v = OnMaybe {
   onNothing :: v,
   onJust :: m v
 } deriving (Eq, Ord)
 
-instance Foldable m => Foldable (OnMaybe k m) where
+instance Foldable m => Foldable (OnMaybe c k m) where
   foldMap f (OnMaybe x a) = f x <> foldMap f a
 
-instance FoldableWithIndex k m => FoldableWithIndex (Maybe k) (OnMaybe k m) where
+instance FoldableWithIndex k m => FoldableWithIndex (Maybe k) (OnMaybe c k m) where
   ifoldMap f (OnMaybe x a) = f Nothing x <> ifoldMap (f . Just) a
 
-instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
+instance (forall x. c x => Eq x, forall x. c x => c (OnMaybe c k m x), Mapping c k m) => Mapping c (Maybe k) (OnMaybe c k m) where
   cst x = OnMaybe x $ cst x
   mmap p (OnMaybe x a) = OnMaybe (p x) (mmap p a)
   mtraverse p (OnMaybe x a) = liftA2 OnMaybe (p x) (mtraverse p a)
@@ -287,35 +287,37 @@ instance Mapping k m => Mapping (Maybe k) (OnMaybe k m) where
   pairMappings p (OnMaybe x a) (OnMaybe y b) = p x y <> pairMappings p a b
   bind f (OnMaybe x m) = OnMaybe (onNothing (f x)) (bind (onJust . f) m)
 
-deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Semigroup a) => Semigroup (OnMaybe k m a)
+deriving via (AlgebraWrapper c (Maybe k) (OnMaybe c k m) a)
+  instance (forall x. c x => Eq x, forall x. c x => c (OnMaybe c k m x), Mapping c k m, c a, Semigroup a) => Semigroup (OnMaybe c k m a)
 
-deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Monoid a) => Monoid (OnMaybe k m a)
+deriving via (AlgebraWrapper c (Maybe k) (OnMaybe c k m) a)
+  instance (forall x. c x => Eq x, forall x. c x => c (OnMaybe c k m x), Mapping c k m, c a, Monoid a) => Monoid (OnMaybe c k m a)
 
-deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Num a) => Num (OnMaybe k m a)
+deriving via (AlgebraWrapper c (Maybe k) (OnMaybe c k m) a)
+  instance (forall x. c x => Eq x, forall x. c x => c (OnMaybe c k m x), Mapping c k m, c a, Num a) => Num (OnMaybe c k m a)
 
-deriving via (AlgebraWrapper (Maybe k) (OnMaybe k m) a)
-  instance (Mapping k m, Ord a, Boolean a) => Boolean (OnMaybe k m a)
+deriving via (AlgebraWrapper c (Maybe k) (OnMaybe c k m) a)
+  instance (forall x. c x => Eq x, forall x. c x => c (OnMaybe c k m x), Mapping c k m, c a, Boolean a) => Boolean (OnMaybe c k m a)
 
 
 -- | Maps on Either
-data OnEither k l m n v = OnEither {
+data OnEither (c :: Type -> Constraint) (k :: Type) (l :: Type) (m :: Type -> Type) (n :: Type -> Type) (v :: Type) = OnEither {
   onLeft :: m v,
   onRight :: n v
 } deriving (Eq, Ord)
 
-instance (Foldable m, Foldable n) => Foldable (OnEither k l m n) where
+instance (Foldable m, Foldable n) => Foldable (OnEither c k l m n) where
   foldMap p (OnEither f g) = foldMap p f <> foldMap p g
 
 instance (FoldableWithIndex k m, FoldableWithIndex l n)
-    => FoldableWithIndex (Either k l) (OnEither k l m n) where
+    => FoldableWithIndex (Either k l) (OnEither c k l m n) where
   ifoldMap p (OnEither f g) = ifoldMap (p . Left) f <> ifoldMap (p . Right) g
 
-instance (Mapping k m,
-          Mapping l n)
-       => Mapping (Either k l) (OnEither k l m n) where
+instance (Mapping c k m,
+          Mapping c l n,
+          forall x. c x => Eq x,
+          forall x. c x => c (OnEither c k l m n x))
+       => Mapping c (Either k l) (OnEither c k l m n) where
   cst x = OnEither (cst x) (cst x)
   mmap p (OnEither f g) = OnEither (mmap p f) (mmap p g)
   mtraverse p (OnEither f g) = liftA2 OnEither (mtraverse p f) (mtraverse p g)
@@ -336,47 +338,72 @@ instance (Mapping k m,
   pairMappings p (OnEither f1 g1) (OnEither f2 g2) = pairMappings p f1 f2 <> pairMappings p g1 g2
   bind f (OnEither u v) = OnEither (bind (onLeft . f) u) (bind (onRight . f) v)
 
-deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m,
-            Mapping l n,
-            Ord a,
-            Semigroup a) => Semigroup (OnEither k l m n a)
+deriving via (AlgebraWrapper c (Either k l) (OnEither c k l (m :: Type -> Type) n) a)
+  instance (Mapping c k m,
+            Mapping c l n,
+            c a,
+            forall x. c x => Eq x,
+            forall x. c x => c (OnEither c k l m n x),
+            Semigroup a) => Semigroup (OnEither c k l m n a)
 
-deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m,
-            Mapping l n,
-            Ord a,
-            Monoid a) => Monoid (OnEither k l m n a)
+deriving via (AlgebraWrapper c (Either k l) (OnEither c k l (m :: Type -> Type) n) a)
+  instance (Mapping c k m,
+            Mapping c l n,
+            c a,
+            forall x. c x => Eq x,
+            forall x. c x => c (OnEither c k l m n x),
+            Monoid a) => Monoid (OnEither c k l m n a)
 
-deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m,
-            Mapping l n,
-            Ord a,
-            Num a) => Num (OnEither k l m n a)
+deriving via (AlgebraWrapper c (Either k l) (OnEither c k l (m :: Type -> Type) n) a)
+  instance (Mapping c k m,
+            Mapping c l n,
+            c a,
+            forall x. c x => Eq x,
+            forall x. c x => c (OnEither c k l m n x),
+            Num a) => Num (OnEither c k l m n a)
 
-deriving via (AlgebraWrapper (Either k l) (OnEither k l (m :: Type -> Type) n) a)
-  instance (Mapping k m,
-            Mapping l n,
-            Ord a,
-            Boolean a) => Boolean (OnEither k l m n a)
+deriving via (AlgebraWrapper c (Either k l) (OnEither c k l (m :: Type -> Type) n) a)
+  instance (Mapping c k m,
+            Mapping c l n,
+            c a,
+            forall x. c x => Eq x,
+            forall x. c x => c (OnEither c k l m n x),
+            Boolean a) => Boolean (OnEither c k l m n a)
+
+
+newtype Reconstrained (c :: Type -> Constraint) (d :: Type -> Constraint) (k :: Type) (m :: Type -> Type) (a :: Type) = Reconstrained {
+  preconstrained :: m a
+} deriving (Eq, Ord, Foldable, FoldableWithIndex k, Neighbourly)
+
+instance (forall x. d x => c x, forall x. d x => d (Reconstrained c d k m x), Mapping c k m) => Mapping d k (Reconstrained c d k m) where
+  cst = Reconstrained . cst
+  act = act . preconstrained
+  isConst = isConst . preconstrained
+  mtraverse f = fmap Reconstrained . mtraverse f . preconstrained
+  mmap f = Reconstrained . mmap f . preconstrained
+  mergeA p (Reconstrained m) (Reconstrained n) = Reconstrained <$> mergeA p m n
+  merge p (Reconstrained m) (Reconstrained n) = Reconstrained $ merge p m n
+  mergeA3 p (Reconstrained m) (Reconstrained n) (Reconstrained o) = Reconstrained <$> mergeA3 p m n o
+  merge3 p (Reconstrained m) (Reconstrained n) (Reconstrained o) = Reconstrained $ merge3 p m n o
 
 
 -- | Maps on pairs
-newtype OnPair k l m n v = OnPair {
+newtype OnPair c k l m n v = OnPair {
   asComposite :: m (n v)
 } deriving (Eq, Ord)
 
-instance (Foldable m, Foldable n) => Foldable (OnPair k l m n) where
+instance (Foldable m, Foldable n) => Foldable (OnPair c k l m n) where
   foldMap p (OnPair f) = foldMap (foldMap p) f
 
-instance (FoldableWithIndex k m, FoldableWithIndex l n) => FoldableWithIndex (k,l) (OnPair k l m n) where
+instance (FoldableWithIndex k m, FoldableWithIndex l n) => FoldableWithIndex (k,l) (OnPair c k l m n) where
   ifoldMap p (OnPair f) = let
     h x = ifoldMap (p . (x,))
     in ifoldMap h f
 
-instance (Mapping k m,
-          Mapping l n)
-       => Mapping (k, l) (OnPair k l m n) where
+instance (Mapping c k m,
+          Mapping c l n,
+          forall x. c x => c (OnPair c k l m n x))
+       => Mapping c (k, l) (OnPair c k l m n) where
   cst x = OnPair . cst $ cst x
   mmap p (OnPair f) = OnPair (mmap (mmap p) f)
   mtraverse p (OnPair f) = OnPair <$> mtraverse (mtraverse p) f
@@ -388,37 +415,31 @@ instance (Mapping k m,
   mergeA3 p (OnPair f) (OnPair g) (OnPair h) = OnPair <$> mergeA3 (mergeA3 p) f g h
   pairMappings p (OnPair f) (OnPair g) = pairMappings (pairMappings p) f g
 
-deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Semigroup a) => Semigroup (OnPair k l m n a)
+deriving via (AlgebraWrapper (c :: Type -> Constraint) (k, l) (OnPair c k l (m :: Type -> Type) (n :: Type -> Type)) a)
+  instance (Mapping c k m, Mapping c l n,
+          forall x. c x => c (OnPair c k l m n x), c a, Semigroup a) => Semigroup (OnPair c k l m n a)
 
-deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Monoid a) => Monoid (OnPair k l m n a)
+deriving via (AlgebraWrapper (c :: Type -> Constraint) (k, l) (OnPair c k l (m :: Type -> Type) (n :: Type -> Type)) a)
+  instance (Mapping c k m, Mapping c l n,
+          forall x. c x => c (OnPair c k l m n x), c a, Monoid a) => Monoid (OnPair c k l m n a)
 
-deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) a)
-  instance (Mapping k m, Mapping l n, Ord a, Num a) => Num (OnPair k l m n a)
+deriving via (AlgebraWrapper (c :: Type -> Constraint) (k, l) (OnPair c k l (m :: Type -> Type) (n :: Type -> Type)) a)
+  instance (Mapping c k m, Mapping c l n,
+          forall x. c x => c (OnPair c k l m n x), c a, Num a) => Num (OnPair c k l m n a)
 
-deriving via (AlgebraWrapper (k, l) (OnPair k l (m :: Type -> Type) (n :: Type -> Type)) b)
-  instance (Mapping k m, Mapping l n, Ord b, Boolean b) => Boolean (OnPair k l m n b)
-
-
--- | A moderately efficient three-way merge amounting to if-then-else
-mergeIfThenElse :: (Mapping k m, Ord v) => m Bool -> m v -> m v -> m v
-mergeIfThenElse m n1 n2 = let
-  f True  x = Just x
-  f False _ = Nothing
-  g (Just x) _ = x
-  g Nothing  y = y
-  in merge g (merge f m n1) n2
+deriving via (AlgebraWrapper (c :: Type -> Constraint) (k, l) (OnPair c k l (m :: Type -> Type) (n :: Type -> Type)) b)
+  instance (Mapping c k m, Mapping c l n,
+          forall x. c x => c (OnPair c k l m n x), c b, Boolean b) => Boolean (OnPair c k l m n b)
 
 
 -- | Is the first a subset of the second?
-isSubset :: (Boolean b, Mapping k m) => m b -> m b -> b
+isSubset :: (Boolean b, c Void, Mapping c k m) => m b -> m b -> b
 isSubset m n = let
   p x y = AllB (x --> y)
   in getAllB $ pairMappings p m n
 
 -- | Are the two true on distinct values?
-isDisjoint :: (Boolean b, Mapping k m) => m b -> m b -> b
+isDisjoint :: (Boolean b, c Void, Mapping c k m) => m b -> m b -> b
 isDisjoint m n = let
   p x y = AllB (not (x && y))
   in getAllB $ pairMappings p m n
@@ -426,19 +447,19 @@ isDisjoint m n = let
 
 -- | A wrapper to allow defining `PartialOrd` instances on mappings whose keys
 -- have an `Ord` instance.
-newtype OrdWrapper k m v = OrdWrapper {
+newtype OrdWrapper c k m v = OrdWrapper {
   getOrdMapping :: m v
 }
 
-instance (Mapping k m, Ord v) => PartialOrd (OrdWrapper k m v) where
+instance (Mapping c k m, c Void, Ord v) => PartialOrd (OrdWrapper c k m v) where
   compare' (OrdWrapper u) (OrdWrapper v) = pairMappings fromCompare u v
 
 
   -- | A wrapper to allow defining `PartialOrd` instances on mappings whose keys
   -- have a `PartialOrd` instance.
-newtype PartialOrdWrapper k m v = PartialOrdWrapper {
+newtype PartialOrdWrapper c k m v = PartialOrdWrapper {
   getPartialOrdMapping :: m v
 }
 
-instance (Mapping k m, PartialOrd v) => PartialOrd (PartialOrdWrapper k m v) where
+instance (Mapping c k m, c Void, PartialOrd v) => PartialOrd (PartialOrdWrapper c k m v) where
   compare' (PartialOrdWrapper u) (PartialOrdWrapper v) = pairMappings compare' u v

@@ -20,12 +20,15 @@
 --
 -- Broadly speaking, there are two ways of using the code:
 --
--- * It can be used directly as a `Mapping`.
+-- * It can be used directly as a `Mapping`. This is convenient, but
+--   possibly wasteful: every operation builds a separate cache.
 --
 -- * One can (with a tiny bit more effort) use a layer of functions
---   which return in the State monad. These functions mostly have
---   names ending in 'S' (for 'State'), and the Mapping functionality
---   mostly uses these under the surface.
+--   which return in the State monad, enabling the user to
+--   progressively build a shared cache. These functions mostly have
+--   names ending in 'S' (for 'State').
+--
+-- Under the surface, the first layer mostly uses the second layer.
 --
 -- Four layers of functions:
 --
@@ -57,6 +60,7 @@ import Data.Foldable.WithIndex (FoldableWithIndex(..))
 import Data.Functor.Compose (Compose(..))
 import Data.Functor.Identity (Identity(..))
 import qualified Data.IntMap.Strict as IM
+import Data.Kind (Type)
 import Data.Monoid (All(..), Ap(..), Sum(..))
 import qualified Data.Set as S
 import Data.Map.Strict (Map)
@@ -112,7 +116,7 @@ instance Ord (Serial a) where
   compare (Serial i _) (Serial j _) = compare i j
 
 -- | The raw material of a decision tree.
-data Node k m a v = Leaf v | Branch a (m (Serial (Node k m a v)))
+data Node (k :: Type) (m :: Type -> Type) (a :: Type) (v :: Type) = Leaf v | Branch a (m (Serial (Node k m a v)))
 
 deriving instance (Eq (m (Serial (Node k m a v))), Eq a, Eq v) => Eq (Node k m a v)
 
@@ -139,13 +143,17 @@ leafS :: (forall x. Ord x => Ord (m x), Ord a, Ord v)
 leafS = stash . Leaf
 
 -- | Create a branch
-branchS :: (Mapping k m, Ord a, Ord v)
+branchS :: (Mapping Eq k m,
+            Ord a,
+            Ord v,
+            forall x. Ord x => Ord (m x))
         => a
         -> m (Serial (Node k m a v))
         -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 branchS a n = case isConst n of
   Just s -> pure s
   Nothing -> stash (Branch a n)
+
 
 -- | Decision trees
 --
@@ -155,7 +163,7 @@ branchS a n = case isConst n of
 -- even with a modest-sized decision diagram.
 --
 -- 2. The traverse and mergeA methods are very inefficient, and can
--- visit notes an exponential number of times (see documentation for
+-- visit nodes an exponential number of times (see documentation for
 -- `traverseS`), but the mmap, foldMap and merge methods visit each
 -- node only once.
 --
@@ -191,6 +199,12 @@ recurseMapM p q = let
   in memoComputeM serial r
 
 
+-- | Run a state-based computation to make a decision tree
+runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v))
+                -> Decision k m a v
+runOnEmptyCache r = Decision . evalState r $ Cache M.empty
+
+
 -- | A function Int -> Int -> Int which is injective on nonnegative
 -- integers
 pairIntegers :: Int -> Int -> Int
@@ -203,15 +217,6 @@ tripleIntegers :: Int -> Int -> Int -> Int
 tripleIntegers i j k = (((i+j+k)*(i+j+k+1)*(i+j+k+2)) `div` 6) + pairIntegers i j
 
 
-instance (Mapping k m, Ord a, Eq v) => Eq (Decision k m a v) where
-  a == b = getAll $ pairMappings (\x y -> All (x == y)) a b
--- test pointer equality first
-
-
-instance (Mapping k m, Ord a, Ord v) => Ord (Decision k m a v) where
-  compare = pairMappings compare
-
-
 instance Foldable m => Foldable (Decision k m a) where
 
   foldMap f = let
@@ -219,18 +224,19 @@ instance Foldable m => Foldable (Decision k m a) where
     in recurseMap f p . startDecision
 
 
--- | Run a state-based computation to make a decision tree
-runOnEmptyCache :: State (Cache (Node k m a v)) (Serial (Node k m a v))
-                -> Decision k m a v
-runOnEmptyCache r = Decision . evalState r $ Cache M.empty
-
-
 -- | A state-based mmap
-mapS :: (Mapping k m, Ord a, Ord v)
+mapS :: forall k m a u v.
+        (Mapping Eq k m, Ord a, Ord v,
+         forall x. Ord x => Ord (m x))
      => (u -> v)
      -> Serial (Node k m a u)
      -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 mapS f = let
+  q :: forall z s.
+       (z -> StateT s (State (Cache (Node k m a v))) (Serial (Node k m a v)))
+    -> a
+    -> m z
+    -> StateT s (State (Cache (Node k m a v))) (Serial (Node k m a v))
   q r a = lift . branchS a <=< mtraverse r
   in recurseMapM (leafS . f) q
 
@@ -240,11 +246,15 @@ mapS f = let
 -- It's far from clear whether it's possible or not to do a general
 -- traverse fast in this setting. This algorithm is slow (it may visit
 -- nodes an exponential number of times).
-traverseS :: (Mapping k m, Ord a, Ord v, Applicative f)
+traverseS :: forall k m a u v f.
+             (Mapping Eq k m, Ord a, Ord v, Applicative f,
+              forall x. Ord x => Ord (m x))
           => (u -> f v)
           -> Serial (Node k m a u)
           -> f (State (Cache (Node k m a v)) (Serial (Node k m a v)))
 traverseS p = let
+  inner :: Serial (Node k m a u)
+             -> f (State (Cache (Node k m a v)) (Serial (Node k m a v)))
   inner s = case content s of
     Leaf v -> leafS <$> p v
     Branch a m -> fmap (branchS a =<<) . getCompose $ mtraverse (Compose . inner) m
@@ -252,14 +262,22 @@ traverseS p = let
 
 
 -- | A state-based merge
-mergeS :: (Mapping k m, Ord a, Ord w)
+mergeS :: forall k m a u v w.
+          (Mapping Eq k m, Ord a, Ord w,
+           forall x. Ord x => Ord (m x))
        => (u -> v -> w)
        -> Serial (Node k m a u)
        -> Serial (Node k m a v)
        -> State (Cache (Node k m a w)) (Serial (Node k m a w))
 mergeS f = let
+
   pairSerial (Serial i _, Serial j _) = pairIntegers i j
 
+  calculate :: forall s.
+               ((Serial (Node k m a u), Serial (Node k m a v))
+            -> StateT s (State (Cache (Node k m a w))) (Serial (Node k m a w)))
+            -> (Serial (Node k m a u), Serial (Node k m a v))
+            -> StateT s (State (Cache (Node k m a w))) (Serial (Node k m a w))
   calculate r (s,t) = case (content s, content t) of
     (Leaf u, Leaf v) -> lift . leafS $ f u v
     (Leaf _, Branch b n) -> lift . branchS b =<< mtraverse (r . (s,)) n
@@ -268,6 +286,7 @@ mergeS f = let
       LT -> lift . branchS a =<< mtraverse (r . (,t)) m
       GT -> lift . branchS b =<< mtraverse (r . (s,)) n
       EQ -> lift . branchS a =<< mergeA (curry r) m n
+
   in curry $ memoComputeM pairSerial calculate
 
 
@@ -275,12 +294,17 @@ mergeS f = let
 --
 -- Just as for traverseS, this setting makes it seem unlikely that an
 -- efficient algorithm will be possible.
-mergeAS :: (Mapping k m, Ord a, Ord w, Applicative f)
+mergeAS :: forall k m a u v w f.
+           (Mapping Eq k m, Ord a, Ord w, Applicative f,
+            forall x. Ord x => Ord (m x))
         => (u -> v -> f w)
         -> Serial (Node k m a u)
         -> Serial (Node k m a v)
         -> f (State (Cache (Node k m a w)) (Serial (Node k m a w)))
 mergeAS f = let
+  inner :: Serial (Node k m a u)
+        -> Serial (Node k m a v)
+        -> f (State (Cache (Node k m a w)) (Serial (Node k m a w)))
   inner s t = case (content s, content t) of
     (Leaf u, Leaf v) -> leafS <$> f u v
     (Leaf _, Branch b n) ->
@@ -295,7 +319,9 @@ mergeAS f = let
 
 
 -- | A state-based merge3.
-mergeS3 :: (Mapping k m, Ord a, Ord x)
+mergeS3 :: forall k m a u v w x.
+           (Mapping Eq k m, Ord a, Ord x,
+           forall y. Ord y => Ord (m y))
         => (u -> v -> w -> x)
         -> Serial (Node k m a u)
         -> Serial (Node k m a v)
@@ -305,6 +331,11 @@ mergeS3 f = let
 
   tripleSerial (Serial i _, Serial j _, Serial k _) = tripleIntegers i j k
 
+  calculate :: forall s.
+               (   (Serial (Node k m a u), Serial (Node k m a v), Serial (Node k m a w))
+                -> StateT s (State (Cache (Node k m a x))) (Serial (Node k m a x)))
+            -> (Serial (Node k m a u), Serial (Node k m a v), Serial (Node k m a w))
+            -> StateT s (State (Cache (Node k m a x))) (Serial (Node k m a x))
   calculate q (r,s,t) = case (content r, content s, content t) of
     (Leaf u, Leaf v, Leaf w) -> lift . leafS $ f u v w
     (Leaf _, Leaf _, Branch c o) -> lift . branchS c =<< mtraverse (q . (r,s,)) o
@@ -336,11 +367,36 @@ mergeS3 f = let
         LT -> lift . branchS a =<< mergeA (\x y -> q (x,y,t)) m n
         EQ -> lift . branchS a =<< mergeA3 (\x y z -> q (x,y,z)) m n o
 
+  start :: Serial (Node k m a u)
+        -> Serial (Node k m a v)
+        -> Serial (Node k m a w)
+        -> State (Cache (Node k m a x)) (Serial (Node k m a x))
   start r s t = memoComputeM tripleSerial calculate (r,s,t)
+
   in start
 
 
-instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
+instance (Mapping Eq k m,
+          Ord a,
+          Eq v,
+          forall x. Ord x => Ord (m x))
+      => Eq (Decision k m a v) where
+  a == b = getAll $ pairMappings (\x y -> All (x == y)) a b
+-- TODO test pointer equality first
+
+
+instance (Mapping Eq k m,
+          Ord a,
+          Ord v,
+          forall x. Ord x => Ord (m x))
+      => Ord (Decision k m a v) where
+  compare = pairMappings compare
+
+
+instance (Mapping Eq k m,
+          Ord a,
+          forall x. Ord x => Ord (m x))
+      => Mapping Ord (a -> k) (Decision k m a) where
 
   cst x = let
     n = Leaf x
@@ -385,7 +441,7 @@ instance (Mapping k m, Ord a) => Mapping (a -> k) (Decision k m a) where
     in go
 
 
-instance (Ord a, Mapping k m, Neighbourly m) => Neighbourly (Decision k m a) where
+instance (Ord a, Mapping Eq k m, Neighbourly m) => Neighbourly (Decision k m a) where
 
   neighbours = let
 
@@ -414,7 +470,7 @@ instance (Ord a, Mapping k m, Neighbourly m) => Neighbourly (Decision k m a) whe
     in memoCompute serial p . Left . startDecision
 
 
-instance (Ord a, FoldableWithIndex k m, Mapping k m)
+instance (Ord a, FoldableWithIndex k m, Mapping Eq k m)
     => FoldableWithIndex (Map a k) (Decision k m a) where
 
   ifoldMap f = let
@@ -440,6 +496,7 @@ satisfyingAssignments t = let
     in getAp . ifoldMap h
   in recurseMap p q . startDecision
 
+
 -- | Find all assignments that return True
 --
 -- Again, this can produce very large outputs even with modest-sized
@@ -451,7 +508,7 @@ trueAssignments = satisfyingAssignments id
 
 
 -- | A general algorithm for counts of a decision tree
-generalCount :: (Mapping k m)
+generalCount :: (Mapping Eq k m)
              => (a -> Int)
                 -- ^ The serial number of a decision
              -> Int
@@ -480,7 +537,7 @@ generalCount s n c d = let
 
 
 -- | A more specialised summing count
-foldingCount :: (Mapping k m, Num n)
+foldingCount :: (Mapping Eq k m, Num n)
              => (a -> Int)
                 -- ^ The serial number of a decision
              -> Int
@@ -496,7 +553,7 @@ foldingCount s n c = let
   in generalCount s n c q
 
 -- | Even more specialised: just counts true values
-foldingCountTrue :: (Mapping k m, Num n)
+foldingCountTrue :: (Mapping Eq k m, Num n)
                  => (a -> Int)
                     -- ^ The serial number of a decision
                  -> Int
@@ -506,6 +563,7 @@ foldingCountTrue :: (Mapping k m, Num n)
                  -> n
                     -- ^ The count
 foldingCountTrue s n = foldingCount s n (\x -> if x then 1 else 0)
+
 
 -- | Create a test for a variable (valued in any Boolean)
 genTestS :: (Ord a, Ord b, Boolean b)
@@ -517,7 +575,8 @@ genTestS x = do
   branchS x $ OnBool n0 n1
 
 -- | Tests if a variable is true (valued in any Boolean)
-genTest :: (Ord a, Ord b, Boolean b) => a -> Decision Bool OnBool a b
+genTest :: (Ord a, Ord b, Boolean b)
+        => a -> Decision Bool OnBool a b
 genTest = runOnEmptyCache . genTestS
 
 -- | Test if a variable is true (specialised to `Bool`)
@@ -527,19 +586,24 @@ testS :: (Ord a)
 testS = genTestS
 
 -- | Test if a variable is true (specialised to `Bool`)
-test :: Ord a => a -> Decision Bool OnBool a Bool
+test :: (Ord a) => a -> Decision Bool OnBool a Bool
 test = genTest
 
 
 -- | Make a single decision
-decisionS :: (Mapping k m, Ord a, Ord v)
+decisionS :: (Mapping Eq k m,
+              Ord a,
+              Ord v,
+              forall x. Ord x => Ord (m x))
           => a
           -> m v
           -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 decisionS a m = branchS a =<< mtraverse leafS m
 
+
 -- | A single decision
-decision :: (Mapping k m, Ord a, Ord v)
+decision :: (Mapping Eq k m, Ord a, Ord v,
+            forall x. Ord x => Ord (m x))
          => a
          -> m v
          -> Decision k m a v
@@ -548,53 +612,79 @@ decision a = runOnEmptyCache . decisionS a
 
 -- | Build a test imposing conditions which must be true for all
 -- variables in the map
-decideAllS :: (Mapping k m, Ord a)
+decideAllS :: forall k m a.
+              (Mapping Eq k m, Ord a,
+               forall x. Ord x => Ord (m x))
            => Map a (m Bool)
            -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
 decideAllS = let
+
+  begin :: [(a, m Bool)]
+        -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
   begin [] = leafS True
   begin l = do
     f <- leafS False
     t <- leafS True
     continue f t l
+
+  continue :: Serial (Node k m a Bool)
+           -> Serial (Node k m a Bool)
+           -> [(a, m Bool)]
+           -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
   continue _ u [] = pure u
   continue f u ((a,m):xs) = do
     v <- branchS a (mmap (\i -> if i then u else f) m)
     continue f v xs
+
   in begin . M.toDescList
+
 
 -- | A test imposing conditions which must be true for all variables
 -- in the map
-decideAll :: (Mapping k m, Ord a) => Map a (m Bool) -> Decision k m a Bool
+decideAll :: (Mapping Eq k m, Ord a,
+              forall x. Ord x => Ord (m x))
+          => Map a (m Bool) -> Decision k m a Bool
 decideAll = runOnEmptyCache . decideAllS
 
 
 -- | Build a test imposing conditions which must be true for at least
 -- one variable in the map
-decideAnyS :: (Mapping k m, Ord a)
+decideAnyS :: forall k m a.
+              (Mapping Eq k m, Ord a,
+               forall x. Ord x => Ord (m x))
            => Map a (m Bool)
            -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
 decideAnyS = let
+
+  begin :: [(a, m Bool)]
+        -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
   begin [] = leafS False
   begin l = do
     t <- leafS True
     f <- leafS False
     continue t f l
+
+  continue :: Serial (Node k m a Bool)
+           -> Serial (Node k m a Bool)
+           -> [(a, m Bool)]
+           -> State (Cache (Node k m a Bool)) (Serial (Node k m a Bool))
   continue _ u [] = pure u
   continue t u ((a,m):xs) = do
     v <- branchS a (mmap (\i -> if i then t else u) m)
     continue t v xs
+
   in begin . M.toDescList
+
 
 -- | A test imposing conditions which must be true for at least one
 -- variable in the map
-decideAny :: (Mapping k m, Ord a) => Map a (m Bool) -> Decision k m a Bool
+decideAny :: (Mapping Eq k m, Ord a,
+            forall x. Ord x => Ord (m x)) => Map a (m Bool) -> Decision k m a Bool
 decideAny = runOnEmptyCache . decideAnyS
 
 
-
 -- | Display the structure of a cache
-debugShowCache :: (Mapping k m, Show a, Show v, Show (m Int))
+debugShowCache :: (Mapping Eq k m, Show a, Show v, Show (m Int))
                => Cache (Node k m a v)
                -> [String]
 debugShowCache (Cache c) = let
@@ -616,7 +706,10 @@ debugShowCache (Cache c) = let
 -- | Provided for debugging purposes only: if you find yourself
 -- wanting this, that's a sign you should be using the State-valued
 -- functionality instead.
-recoverCache :: (Mapping k m, Ord a, Ord v) => Serial (Node k m a v) -> Cache (Node k m a v)
+recoverCache :: (Mapping Eq k m, Ord a, Ord v,
+                 forall x. Ord x => Ord (m x))
+             => Serial (Node k m a v)
+             -> Cache (Node k m a v)
 recoverCache = let
   inner s@(Serial _ n) = do
     m <- get
@@ -631,7 +724,13 @@ recoverCache = let
 
 
 -- | Display the structure of a Decision
-debugShow :: (Mapping k m, Ord a, Ord v, Show a, Show v, Show (m Int))
+debugShow :: (Mapping Eq k m,
+              Ord a,
+              Ord v,
+              Show a,
+              Show v,
+              Show (m Int),
+              forall x. Ord x => Ord (m x))
           => Decision k m a v
           -> String
 debugShow (Decision x@(Serial s _)) = let
@@ -640,38 +739,67 @@ debugShow (Decision x@(Serial s _)) = let
 
 
 -- | Build a simplified decision, filling in some values in advance
-restrictS :: (Mapping k m, Ord a, Ord v)
+restrictS :: forall k m a v.
+             (Mapping Eq k m, Ord a, Ord v,
+              forall x. Ord x => Ord (m x))
           => (a -> Maybe k)
           -> Serial (Node k m a v)
           -> State (Cache (Node k m a v)) (Serial (Node k m a v))
 restrictS f = let
+  q :: forall s z.
+       (z -> StateT s (State (Cache (Node k m a v))) (Serial (Node k m a v)))
+    -> a
+    -> m z
+    -> StateT s (State (Cache (Node k m a v))) (Serial (Node k m a v))
   q r a m = case f a of
     Just b -> r $ act m b
     Nothing -> lift . branchS a =<< mtraverse r m
   in recurseMapM leafS q
 
--- | Simplify a Decision by fill in some values in advance
+
+-- | Simplify a Decision by filling in some values in advance
 -- > act (restrict h d) f = let
 -- >   f' x = case h x of
 -- >     Just y  -> y
 -- >     Nothing -> f x
 -- >   in act d f'
-restrict :: (Mapping k m, Ord a, Ord v)
+restrict :: (Mapping Eq k m, Ord a, Ord v,
+             forall x. Ord x => Ord (m x))
          => (a -> Maybe k)
          -> Decision k m a v
          -> Decision k m a v
 restrict f = runOnEmptyCache . restrictS f . startDecision
 
 
-deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord a, Ord v, Semigroup v) => Semigroup (Decision k m a v)
+deriving via (AlgebraWrapper Ord (a -> k) (Decision k m a) v)
+  instance (Mapping Eq k m,
+            Ord a,
+            Ord v,
+            Semigroup v,
+            forall x. Ord x => Ord (m x))
+        => Semigroup (Decision k m a v)
 
-deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord a, Ord v, Monoid v) => Monoid (Decision k m a v)
+deriving via (AlgebraWrapper Ord (a -> k) (Decision k m a) v)
+  instance (Mapping Eq k m,
+            Ord a,
+            Ord v,
+            Monoid v,
+            forall x. Ord x => Ord (m x))
+        => Monoid (Decision k m a v)
 
-deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord a, Ord v, Num v) => Num (Decision k m a v)
+deriving via (AlgebraWrapper Ord (a -> k) (Decision k m a) v)
+  instance (Mapping Eq k m,
+            Ord a,
+            Ord v,
+            Num v,
+            forall x. Ord x => Ord (m x))
+        => Num (Decision k m a v)
 
-deriving via (AlgebraWrapper (a -> k) (Decision k m a) v)
-  instance (Mapping k m, Ord a, Ord v, Boolean v) => Boolean (Decision k m a v)
+deriving via (AlgebraWrapper Ord (a -> k) (Decision k m a) v)
+  instance (Mapping Eq k m,
+            Ord a,
+            Ord v,
+            Boolean v,
+            forall x. Ord x => Ord (m x))
+        => Boolean (Decision k m a v)
 

@@ -43,7 +43,7 @@ fromListWithKey a f = let
 instance Foldable (MapWithDefault k) where
   foldMap p (MapWithDefault a f) = p a <> foldMap p f
 
-instance Ord k => Mapping k (MapWithDefault k) where
+instance Ord k => Mapping Eq k (MapWithDefault k) where
 
   cst x = MapWithDefault x M.empty
 
@@ -144,14 +144,14 @@ instance (Enum k, Eq k) => Neighbourly (MapWithDefault k) where
     d l = zip ([a] <> l) (l <> [a])
     in S.fromList . concatMap (d . fmap snd) . groupBy c $ M.toAscList f
 
-deriving via (AlgebraWrapper k (MapWithDefault k) b)
+deriving via (AlgebraWrapper Eq k (MapWithDefault k) b)
   instance (Ord k, Ord b, Semigroup b) => Semigroup (MapWithDefault k b)
 
-deriving via (AlgebraWrapper k (MapWithDefault k) b)
+deriving via (AlgebraWrapper Eq k (MapWithDefault k) b)
   instance (Ord k, Ord b, Monoid b) => Monoid (MapWithDefault k b)
 
-deriving via (AlgebraWrapper k (MapWithDefault k) b)
+deriving via (AlgebraWrapper Eq k (MapWithDefault k) b)
   instance (Ord k, Ord b, Num b) => Num (MapWithDefault k b)
 
-deriving via (AlgebraWrapper k (MapWithDefault k) b)
+deriving via (AlgebraWrapper Eq k (MapWithDefault k) b)
   instance (Ord k, Ord b, Boolean b) => Boolean (MapWithDefault k b)

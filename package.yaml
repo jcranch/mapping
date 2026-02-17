@@ -23,6 +23,7 @@ dependencies:
 - indexed-traversable    >= 0.1.1     &&  < 0.2
 - partialord             >= 0.0.2     &&  < 0.2
 - transformers           >= 0.6       &&  < 0.7
+- trivial-constraint     >= 0.7       &&  < 0.8
 
 language:            GHC2021
 
