@@ -1,3 +1,8 @@
+## [0.4.0.0] - 2026-02-18
+
+* Constraint polymorphism
+* Rewrite of the `Data.Mapping.Decision` module
+
 ## [0.3.1.0] - 2024-05-20
 
 * Support for GHC 9.10
