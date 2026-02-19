@@ -1,4 +1,5 @@
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
@@ -23,31 +24,48 @@
 -- * It can be used directly as a `Mapping`. This is convenient, but
 --   possibly wasteful: every operation builds a separate cache.
 --
--- * One can (with a tiny bit more effort) use a layer of functions
---   which return in the State monad, enabling the user to
+-- * Instead, one can (with a tiny bit more effort) use a layer of
+--   functions which return in the State monad, enabling the user to
 --   progressively build a shared cache. These functions mostly have
 --   names ending in 'S' (for 'State').
 --
 -- Under the surface, the first layer mostly uses the second layer.
---
--- Four layers of functions:
---
--- 1. Pure memoisation functions
--- 2. Specialisations to Nodes
--- 3. Cache-manipulating versions of standard functions
--- 4. The functionality of Decision
 
--- TODO:
---  * Increase test coverage
---  * Examples:
---     - finding optima
---     - finding random elements
---  * Implement mergeA3
---
--- MAYBETODO:
---  * Optimisation by reordering
-module Data.Mapping.Decision where
+module Data.Mapping.Decision (
+  Serial(..),
+  Node(..),
+  Cache(..),
+  leafS,
+  branchS,
+  Decision(..),
+  runOnEmptyCache,
+  mapS,
+  traverseS,
+  mergeS,
+  mergeAS,
+  mergeS3,
+  trueAssignments,
+  generalCount,
+  foldingCount,
+  foldingCountTrue,
+  genTestS,
+  genTest,
+  testS,
+  test,
+  decisionS,
+  decision,
+  decideAllS,
+  decideAll,
+  decideAnyS,
+  decideAny,
+  debugShowCache,
+  recoverCache,
+  debugShow,
+  restrictS,
+  restrict,
+  ) where
 
+import Prelude hiding ((||))
 import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (
@@ -65,6 +83,7 @@ import Data.Monoid (All(..), Ap(..), Sum(..))
 import qualified Data.Set as S
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import GHC.Exts (reallyUnsafePtrEquality#)
 
 import Data.Mapping
 
@@ -78,6 +97,11 @@ data Serial a = Serial {
 
 instance Eq (Serial a) where
   Serial i _ == Serial j _ = i == j
+
+-- | Rapid comparison, but it's meaningless: the order depends on the
+-- order of discovery
+instance Ord (Serial a) where
+  compare (Serial i _) (Serial j _) = compare i j
 
 
 -- | A general-purpose monadic memoising function, which caches
@@ -110,13 +134,10 @@ memoCompute :: (a -> Int)
 memoCompute s r = runIdentity . memoComputeM s r
 
 
--- | Rapid comparison, but it's meaningless: the order depends on the
--- order of discovery
-instance Ord (Serial a) where
-  compare (Serial i _) (Serial j _) = compare i j
-
 -- | The raw material of a decision tree.
-data Node (k :: Type) (m :: Type -> Type) (a :: Type) (v :: Type) = Leaf v | Branch a (m (Serial (Node k m a v)))
+data Node (k :: Type) (m :: Type -> Type) (a :: Type) (v :: Type) =
+  Leaf v |
+  Branch a (m (Serial (Node k m a v)))
 
 deriving instance (Eq (m (Serial (Node k m a v))), Eq a, Eq v) => Eq (Node k m a v)
 
@@ -381,8 +402,10 @@ instance (Mapping Eq k m,
           Eq v,
           forall x. Ord x => Ord (m x))
       => Eq (Decision k m a v) where
-  a == b = getAll $ pairMappings (\x y -> All (x == y)) a b
--- TODO test pointer equality first
+
+  a == b = case reallyUnsafePtrEquality# a b of
+    1# -> True
+    _ -> getAll (pairMappings (\x y -> All (x == y)) a b)
 
 
 instance (Mapping Eq k m,
@@ -552,6 +575,7 @@ foldingCount s n c = let
   q f = fmap getSum . getAp . foldMap (Ap . fmap Sum . f)
   in generalCount s n c q
 
+
 -- | Even more specialised: just counts true values
 foldingCountTrue :: (Mapping Eq k m, Num n)
                  => (a -> Int)
@@ -578,6 +602,7 @@ genTestS x = do
 genTest :: (Ord a, Ord b, Boolean b)
         => a -> Decision Bool OnBool a b
 genTest = runOnEmptyCache . genTestS
+
 
 -- | Test if a variable is true (specialised to `Bool`)
 testS :: (Ord a)
